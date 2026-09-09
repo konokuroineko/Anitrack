@@ -1,0 +1,564 @@
+import threading
+
+from PySide6.QtCore import QObject, Signal, Qt
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from database import (
+    add_to_library,
+    initialize_database,
+    save_anime,
+    save_characters,
+    save_cover_path,
+    save_episodes,
+    save_staff,
+)
+
+from image_cache import download_cover
+
+from ui.navigation import NavigationController
+from ui.theme import (
+    COLORS,
+    SPACING,
+    application_stylesheet,
+)
+
+from ui.pages.character_page import CharacterPage
+from ui.pages.home_page import HomePage
+from ui.pages.library_page import LibraryPage
+from ui.pages.person_page import PersonPage
+from ui.pages.relationship_page import RelationshipPage
+from ui.pages.search_page import SearchPage
+from ui.pages.settings_page import SettingsPage
+from ui.pages.work_detail_page import WorkDetailPage
+
+
+class ImageWorker(QObject):
+    finished = Signal(int, object)
+    error = Signal(int, str)
+
+    def __init__(self, work_id, image_url):
+        super().__init__()
+        self.work_id = work_id
+        self.image_url = image_url
+
+    def run(self):
+        try:
+            self.finished.emit(
+                self.work_id,
+                download_cover(
+                    self.work_id,
+                    self.image_url
+                )
+            )
+        except Exception as error:
+            self.error.emit(
+                self.work_id,
+                str(error)
+            )
+
+
+class NavigationButton(QPushButton):
+
+    def __init__(self, icon_text, label):
+        super().__init__(
+            f"  {icon_text}    {label}"
+        )
+
+        self.label = label
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumHeight(44)
+
+
+class MainWindow(QMainWindow):
+
+    def __init__(self):
+        super().__init__()
+
+        initialize_database()
+
+        self.setWindowTitle(
+            "Anitrack"
+        )
+
+        self.resize(
+            1280,
+            800
+        )
+
+        self.image_threads = []
+        self.navigation_buttons = {}
+
+        self.setup_ui()
+
+    def setup_ui(self):
+
+        root = QWidget()
+
+        root_layout = QHBoxLayout(root)
+
+        root_layout.setContentsMargins(
+            0, 0, 0, 0
+        )
+
+        root_layout.setSpacing(0)
+
+        # =================================
+        # Sidebar
+        # =================================
+
+        sidebar = QFrame()
+
+        sidebar.setObjectName(
+            "sidebar"
+        )
+
+        sidebar.setFixedWidth(
+            220
+        )
+
+        sidebar_layout = QVBoxLayout(
+            sidebar
+        )
+
+        sidebar_layout.setContentsMargins(
+            18,
+            22,
+            18,
+            18
+        )
+
+        sidebar_layout.setSpacing(6)
+
+        brand = QLabel(
+            "ANITRACK"
+        )
+
+        brand.setObjectName(
+            "brand"
+        )
+
+        brand.setStyleSheet(f"""
+            QLabel#brand {{
+                color: {COLORS['primary']};
+                font-size: 19px;
+                font-weight: 800;
+                letter-spacing: 2px;
+                padding: 8px 10px 4px;
+            }}
+        """)
+
+        sidebar_layout.addWidget(
+            brand
+        )
+
+        subtitle = QLabel(
+            "Personal media library"
+        )
+
+        subtitle.setStyleSheet(
+            f"""
+            color: {COLORS['muted']};
+            font-size: 11px;
+            padding: 0 10px;
+            """
+        )
+
+        sidebar_layout.addWidget(
+            subtitle
+        )
+
+        sidebar_layout.addSpacing(
+            26
+        )
+
+        self.stack = QStackedWidget()
+
+        self.navigation = NavigationController(
+            self.stack
+        )
+
+        # =================================
+        # Pages
+        # =================================
+
+        self.library_page = LibraryPage()
+        self.search_page = SearchPage(
+            self.add_to_library
+        )
+        self.work_detail_page = WorkDetailPage()
+
+        pages = {
+            "home": HomePage(),
+            "collections": self.library_page,
+            "search": self.search_page,
+            "work_detail": self.work_detail_page,
+            "person": PersonPage(),
+            "character": CharacterPage(),
+            "relationships": RelationshipPage(),
+            "settings": SettingsPage(),
+        }
+
+        for name, page in pages.items():
+            self.navigation.add_page(
+                name,
+                page
+            )
+
+        # =================================
+        # Navigation buttons
+        # =================================
+
+        navigation_items = [
+            ("⌂", "Home", "home"),
+            ("▦", "Library", "collections"),
+            ("⌕", "Search", "search"),
+            ("♙", "People", "person"),
+            ("♧", "Characters", "character"),
+            ("◇", "Relations", "relationships"),
+        ]
+
+        section_label = QLabel(
+            "BROWSE"
+        )
+
+        section_label.setStyleSheet(
+            f"""
+            color: {COLORS['muted']};
+            font-size: 10px;
+            font-weight: 700;
+            padding: 8px 10px 4px;
+            letter-spacing: 1px;
+            """
+        )
+
+        sidebar_layout.addWidget(
+            section_label
+        )
+
+        for icon, label, page_name in navigation_items:
+
+            button = NavigationButton(
+                icon,
+                label
+            )
+
+            self.navigation_buttons[
+                page_name
+            ] = button
+
+            button.clicked.connect(
+                lambda checked=False,
+                name=page_name:
+                self.navigation.show(name)
+            )
+
+            sidebar_layout.addWidget(
+                button
+            )
+
+        sidebar_layout.addStretch()
+
+        settings_label = QLabel(
+            "SYSTEM"
+        )
+
+        settings_label.setStyleSheet(
+            f"""
+            color: {COLORS['muted']};
+            font-size: 10px;
+            font-weight: 700;
+            padding: 8px 10px 4px;
+            letter-spacing: 1px;
+            """
+        )
+
+        sidebar_layout.addWidget(
+            settings_label
+        )
+
+        settings_button = NavigationButton(
+            "⚙",
+            "Settings"
+        )
+
+        self.navigation_buttons[
+            "settings"
+        ] = settings_button
+
+        settings_button.clicked.connect(
+            lambda: self.navigation.show(
+                "settings"
+            )
+        )
+
+        sidebar_layout.addWidget(
+            settings_button
+        )
+
+        # =================================
+        # Signals
+        # =================================
+
+        self.navigation.page_changed.connect(
+            self.update_navigation_state
+        )
+
+        self.library_page.work_selected.connect(
+            self.show_work_details
+        )
+
+        self.work_detail_page.back_requested.connect(
+            lambda: self.navigation.show(
+                "collections"
+            )
+        )
+
+        # =================================
+        # Layout
+        # =================================
+
+        root_layout.addWidget(
+            sidebar
+        )
+
+        root_layout.addWidget(
+            self.stack,
+            1
+        )
+
+        self.setCentralWidget(root)
+
+        # =================================
+        # Styling
+        # =================================
+
+        self.setStyleSheet(
+            application_stylesheet()
+            + f"""
+            QFrame#sidebar {{
+                background: {COLORS['sidebar']};
+                border-right: 1px solid {COLORS['border']};
+            }}
+
+            QPushButton {{
+                text-align: left;
+            }}
+
+            QFrame#sidebar QPushButton {{
+                background: transparent;
+                border: 1px solid transparent;
+                color: {COLORS['secondary']};
+                border-radius: 9px;
+                padding: 10px 12px;
+                font-size: 13px;
+                font-weight: 500;
+            }}
+
+            QFrame#sidebar QPushButton:hover {{
+                background: {COLORS['panel']};
+                color: {COLORS['primary']};
+            }}
+
+            QFrame#sidebar QPushButton:checked {{
+                background: {COLORS['accent_soft']};
+                border-color: #604528;
+                color: {COLORS['accent_hover']};
+                font-weight: 700;
+            }}
+            """
+        )
+
+        self.navigation.show(
+            "collections"
+        )
+
+    def update_navigation_state(
+        self,
+        page_name
+    ):
+        for name, button in self.navigation_buttons.items():
+            button.setChecked(
+                name == page_name
+            )
+
+    def show_work_details(
+        self,
+        work
+    ):
+        self.work_detail_page.set_work(
+            work
+        )
+
+        self.navigation.show(
+            "work_detail"
+        )
+
+    def add_to_library(
+        self,
+        anime,
+        button
+    ):
+        try:
+
+            save_anime(
+                anime
+            )
+
+            save_characters(
+                anime["id"],
+                (
+                    anime.get("characters")
+                    or {}
+                ).get("edges")
+            )
+
+            save_episodes(
+                anime["id"],
+                anime.get(
+                    "streamingEpisodes"
+                )
+            )
+
+            save_staff(
+                anime["id"],
+                (
+                    anime.get("staff")
+                    or {}
+                ).get("edges")
+            )
+
+            add_to_library(
+                anime["id"],
+                "Planning"
+            )
+
+            button.setText(
+                "Added; caching cover..."
+            )
+
+            button.setEnabled(
+                False
+            )
+
+            self.start_cover_download(
+                anime["id"],
+                (
+                    anime.get("coverImage")
+                    or {}
+                ).get("large"),
+                button
+            )
+
+        except Exception as error:
+
+            button.setText(
+                "Error"
+            )
+
+            self.search_page.results_title.setText(
+                f"Could not save: {error}"
+            )
+
+    def start_cover_download(
+        self,
+        work_id,
+        image_url,
+        button
+    ):
+
+        if not image_url:
+            button.setText(
+                "Added"
+            )
+            return
+
+        worker = ImageWorker(
+            work_id,
+            image_url
+        )
+
+        worker.finished.connect(
+            self.cover_download_finished
+        )
+
+        worker.error.connect(
+            self.cover_download_error
+        )
+
+        thread = threading.Thread(
+            target=worker.run,
+            daemon=True
+        )
+
+        self.image_threads.append(
+            thread
+        )
+
+        thread.start()
+
+        button.setProperty(
+            "cover_work_id",
+            work_id
+        )
+
+    def cover_download_finished(
+        self,
+        work_id,
+        cover_path
+    ):
+
+        if cover_path:
+            save_cover_path(
+                work_id,
+                cover_path
+            )
+
+        self._finish_cover_button(
+            work_id
+        )
+
+    def cover_download_error(
+        self,
+        work_id,
+        message
+    ):
+
+        self._finish_cover_button(
+            work_id,
+            f"Cover unavailable: {message}"
+        )
+
+    def _finish_cover_button(
+        self,
+        work_id,
+        tooltip=None
+    ):
+
+        for button in self.findChildren(
+            QPushButton
+        ):
+
+            if button.property(
+                "cover_work_id"
+            ) == work_id:
+
+                button.setText(
+                    "Added"
+                )
+
+                if tooltip:
+                    button.setToolTip(
+                        tooltip
+                    )
+
+                break
