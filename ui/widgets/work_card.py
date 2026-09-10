@@ -1,10 +1,9 @@
 from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QSpinBox, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout
 
 from ui.theme import COLORS
-from ui.widgets.progress_bar import ProgressBar
 
 
 class WorkCard(QFrame):
@@ -31,7 +30,6 @@ class WorkCard(QFrame):
             QLabel#meta {{ color: {COLORS['muted']}; font-size: 11px; }}
             QPushButton#add {{ background: {COLORS['accent']}; color: #111318; border: none; border-radius: 8px; padding: 7px; font-weight: 800; }}
             QPushButton#add:hover {{ background: {COLORS['accent_hover']}; }}
-            QSpinBox {{ min-height: 28px; border-radius: 7px; }}
         """)
 
         root = QVBoxLayout(self)
@@ -45,6 +43,18 @@ class WorkCard(QFrame):
         root.addWidget(self.cover)
         self._load_cover()
 
+        # The library card is intentionally information-light. Episode controls
+        # belong to the title's detail page, not on top of the library grid.
+        if mode == "library":
+            progress = self._value("progress_episodes") or 0
+            total = self._value("episodes") or 0
+            if total and progress > 0:
+                line = QFrame(self.cover)
+                line.setObjectName("progressLine")
+                width = 202 if progress >= total else max(3, int(202 * progress / total))
+                line.setGeometry(0, 268, width, 8)
+                line.setStyleSheet(f"QFrame#progressLine {{ background:{COLORS['accent']}; border:0; border-radius:0 0 9px 9px; }}")
+
         title = QLabel(self._title())
         title.setObjectName("title")
         title.setWordWrap(True)
@@ -54,9 +64,7 @@ class WorkCard(QFrame):
 
         meta_parts = []
         fmt = self._value("format")
-        year = self._value("start_year")
-        if not year:
-            year = (self._value("startDate") or {}).get("year")
+        year = self._value("start_year") or (self._value("startDate") or {}).get("year")
         if fmt:
             meta_parts.append(str(fmt).title())
         if year:
@@ -64,9 +72,10 @@ class WorkCard(QFrame):
         score = self._value("averageScore")
         if mode == "search" and score:
             meta_parts.append(f"★ {score}")
-        meta = QLabel("  ·  ".join(meta_parts))
-        meta.setObjectName("meta")
-        root.addWidget(meta)
+        if meta_parts:
+            meta = QLabel("  ·  ".join(meta_parts))
+            meta.setObjectName("meta")
+            root.addWidget(meta)
 
         if mode == "search":
             add_button = QPushButton("+  Add to Library")
@@ -74,21 +83,6 @@ class WorkCard(QFrame):
             add_button.setCursor(Qt.PointingHandCursor)
             add_button.clicked.connect(self._add_clicked)
             root.addWidget(add_button)
-        else:
-            progress = self._value("progress_episodes") or 0
-            total = self._value("episodes") or 0
-            if total or progress:
-                root.addWidget(ProgressBar(progress, total))
-                progress_label = QLabel(f"{progress} / {total}" if total else f"{progress} watched")
-                progress_label.setObjectName("meta")
-                root.addWidget(progress_label)
-            if progress_editable:
-                progress_box = QSpinBox()
-                progress_box.setRange(0, total or 99999)
-                progress_box.setValue(progress)
-                progress_box.setPrefix("Episode  ")
-                progress_box.valueChanged.connect(self.progress_changed)
-                root.addWidget(progress_box)
 
     def _load_cover(self):
         cover_path = self._value("cover_path")
@@ -105,15 +99,15 @@ class WorkCard(QFrame):
     def _cover_finished(self):
         reply = self._cover_reply
         self._cover_reply = None
-        if reply is None:
-            return
-        if reply.error() == reply.NetworkError.NoError:
+        if reply is not None and reply.error() == reply.NetworkError.NoError:
             pixmap = QPixmap()
             if pixmap.loadFromData(reply.readAll()):
                 self._set_cover(pixmap)
-        reply.deleteLater()
+        if reply is not None:
+            reply.deleteLater()
 
     def _set_cover(self, pixmap):
+        # Keep the full artwork visible so the accent line always has a stable edge.
         self.cover.setPixmap(pixmap.scaled(self.cover.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def _add_clicked(self):
