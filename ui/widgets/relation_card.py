@@ -57,12 +57,12 @@ class RelationCard(QFrame):
     def _cover_finished(self):
         reply = self._cover_reply
         self._cover_reply = None
-        if reply is None:
+        if reply is None or self._is_deleted():
             return
 
         if reply.error() == reply.NetworkError.NoError:
             pixmap = QPixmap()
-            if pixmap.loadFromData(reply.readAll()):
+            if pixmap.loadFromData(reply.readAll()) and not self._is_deleted():
                 self._set_cover(pixmap)
         reply.deleteLater()
 
@@ -79,7 +79,18 @@ class RelationCard(QFrame):
         except (IndexError, KeyError, TypeError):
             return None
 
+    def _is_deleted(self):
+        try:
+            self.objectName()
+            return False
+        except RuntimeError:
+            return True
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            # Emit only. The receiver may navigate away and destroy this widget,
+            # so never call the base implementation afterward.
             self.clicked.emit(self.relation)
+            event.accept()
+            return
         super().mousePressEvent(event)
