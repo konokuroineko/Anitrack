@@ -4,7 +4,6 @@ import time
 
 ANILIST_URL = "https://graphql.anilist.co"
 
-# Retry settings for handling transient network issues.
 MAX_RETRIES = 3
 RETRY_DELAY = 1
 
@@ -100,7 +99,7 @@ def _media_fields(include_details=True):
                 voiceActors(perPage: 10) {
                     id
                     name { full }
-                    languageV2
+                    language: languageV2
                     image { large }
                 }
             }
