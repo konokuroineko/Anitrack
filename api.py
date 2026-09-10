@@ -58,8 +58,8 @@ def anilist_request(query, variables=None):
     )
 
 
-def _media_fields(include_details=True):
-    """Return the shared GraphQL fields used by search and detail queries."""
+def _media_fields(include_details=False):
+    """Return GraphQL fields shared by search and detail queries."""
     base = """
         id
         type
@@ -94,14 +94,14 @@ def _media_fields(include_details=True):
                     id
                     name { full }
                     image { large }
+                    voiceActors(perPage: 10) {
+                        id
+                        name { full }
+                        languageV2
+                        image { large }
+                    }
                 }
                 role
-                voiceActors(perPage: 10) {
-                    id
-                    name { full }
-                    language: languageV2
-                    image { large }
-                }
             }
         }
         staff(perPage: 15) {
@@ -143,7 +143,7 @@ def search_anime(search, page=1, per_page=20, media_type="ANIME"):
                 hasNextPage
             }}
             media(search: $search, type: $type) {{
-                {_media_fields()}
+                {_media_fields(include_details=False)}
             }}
         }}
     }}
@@ -166,12 +166,12 @@ def get_media_details(media_id):
     query = f"""
     query ($id: Int) {{
         Media(id: $id) {{
-            {_media_fields()}
+            {_media_fields(include_details=True)}
             airingSchedule(perPage: 50) {{
-                nodes {{
+                nodes {
                     airingAt
                     episode
-                }}
+                }
             }}
         }}
     }}
