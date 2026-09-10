@@ -140,18 +140,10 @@ def initialize_database():
     }
 
     if "format" not in column_names:
-
-        cursor.execute("""
-            ALTER TABLE works
-            ADD COLUMN format TEXT
-        """)
+        cursor.execute("ALTER TABLE works ADD COLUMN format TEXT")
 
     if "cover_path" not in column_names:
-
-        cursor.execute("""
-            ALTER TABLE works
-            ADD COLUMN cover_path TEXT
-        """)
+        cursor.execute("ALTER TABLE works ADD COLUMN cover_path TEXT")
 
     for column, definition in {
         "chapters": "INTEGER",
@@ -186,8 +178,7 @@ def initialize_database():
             work_id INTEGER NOT NULL,
             studio_id INTEGER NOT NULL,
             PRIMARY KEY (work_id, studio_id),
-            FOREIGN KEY (work_id) REFERENCES works(id),
-            FOREIGN KEY (studio_id) REFERENCES studios(id)
+            FOREIGN KEY (work_id) REFERENCES works(id)
         )
     """)
 
@@ -227,23 +218,17 @@ def initialize_database():
     """)
 
     connection.commit()
-
     connection.close()
 
 
 def save_characters(work_id, characters):
-    """Save character and voice actor relationships for a work."""
-
     connection = get_connection()
-
     for edge in characters or []:
         character = edge.get("node") or {}
         character_id = character.get("id")
         name = (character.get("name") or {}).get("full")
-
         if not character_id or not name:
             continue
-
         image_url = (character.get("image") or {}).get("large")
         connection.execute("""
             INSERT OR REPLACE INTO characters (id, name, image_url)
@@ -253,33 +238,26 @@ def save_characters(work_id, characters):
             INSERT OR IGNORE INTO work_characters (work_id, character_id)
             VALUES (?, ?)
         """, (work_id, character_id))
-
         for actor in character.get("voiceActors") or []:
             person_id = actor.get("id")
             person_name = actor.get("name") or {}
-
             if not person_id or not person_name.get("full"):
                 continue
-
             actor_image = (actor.get("image") or {}).get("large")
             connection.execute("""
                 INSERT OR REPLACE INTO people (id, name, image_url)
                 VALUES (?, ?, ?)
             """, (person_id, person_name["full"], actor_image))
             connection.execute("""
-                INSERT OR REPLACE INTO character_voice_actors (
-                    character_id, person_id, language
-                )
+                INSERT OR REPLACE INTO character_voice_actors
+                    (character_id, person_id, language)
                 VALUES (?, ?, ?)
             """, (character_id, person_id, actor.get("language")))
-
     connection.commit()
     connection.close()
 
 
 def get_characters(work_id):
-    """Get locally stored characters and voice actors for a work."""
-
     connection = get_connection()
     results = connection.execute("""
         SELECT
@@ -304,19 +282,14 @@ def get_characters(work_id):
 
 
 def save_staff(work_id, staff_edges):
-    """Save staff credits for a work."""
-
     connection = get_connection()
-
     for edge in staff_edges or []:
         person = edge.get("node") or {}
         person_id = person.get("id")
         person_name = (person.get("name") or {}).get("full")
         role = edge.get("role")
-
         if not person_id or not person_name or not role:
             continue
-
         image_url = (person.get("image") or {}).get("large")
         connection.execute("""
             INSERT OR REPLACE INTO people (id, name, image_url)
@@ -326,14 +299,11 @@ def save_staff(work_id, staff_edges):
             INSERT OR IGNORE INTO work_staff (work_id, person_id, role)
             VALUES (?, ?, ?)
         """, (work_id, person_id, role))
-
     connection.commit()
     connection.close()
 
 
 def get_staff(work_id):
-    """Get locally stored staff credits for a work."""
-
     connection = get_connection()
     results = connection.execute("""
         SELECT people.name, people.image_path, people.image_url, work_staff.role
@@ -347,19 +317,14 @@ def get_staff(work_id):
 
 
 def save_episodes(work_id, episode_data):
-    """Save episode metadata supplied by the data source."""
-
     connection = get_connection()
-
     for episode in episode_data or []:
         number = episode.get("episodeNumber")
         if number is None:
             continue
-
         connection.execute("""
-            INSERT INTO episodes (
-                work_id, episode_number, title, description, air_date
-            )
+            INSERT INTO episodes
+                (work_id, episode_number, title, description, air_date)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(work_id, episode_number) DO UPDATE SET
                 title = excluded.title,
@@ -372,14 +337,11 @@ def save_episodes(work_id, episode_data):
             episode.get("description"),
             episode.get("airdate")
         ))
-
     connection.commit()
     connection.close()
 
 
 def get_episodes(work_id):
-    """Get locally stored episodes for a work."""
-
     connection = get_connection()
     results = connection.execute("""
         SELECT * FROM episodes
@@ -391,49 +353,20 @@ def get_episodes(work_id):
 
 
 def save_anime(anime):
-
     title_data = anime["title"]
-
     title = (
         title_data.get("english")
         or title_data.get("romaji")
         or title_data.get("native")
     )
-
-    start_date = anime.get(
-        "startDate"
-    ) or {}
-
-    start_year = start_date.get(
-        "year"
-    )
-
-    cover_image = anime.get(
-        "coverImage"
-    ) or {}
-
+    start_year = (anime.get("startDate") or {}).get("year")
+    cover_image = anime.get("coverImage") or {}
     connection = get_connection()
-
-    # =========================
-    # Save main work
-    # =========================
 
     connection.execute("""
         INSERT INTO works (
-            id,
-            title,
-            type,
-            description,
-            episodes,
-            score,
-            start_year,
-            cover_url,
-            format,
-            chapters,
-            volumes,
-            source,
-            end_year,
-            duration
+            id, title, type, description, episodes, score, start_year,
+            cover_url, format, chapters, volumes, source, end_year, duration
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
@@ -451,20 +384,11 @@ def save_anime(anime):
             end_year = excluded.end_year,
             duration = excluded.duration
     """, (
-        anime["id"],
-        title,
-        "ANIME",
-        anime.get("description"),
-        anime.get("episodes"),
-        anime.get("averageScore"),
-        start_year,
-        cover_image.get("large"),
-        anime.get("format"),
-        anime.get("chapters"),
-        anime.get("volumes"),
-        anime.get("source"),
-        (anime.get("endDate") or {}).get("year"),
-        anime.get("duration")
+        anime["id"], title, anime.get("type") or "ANIME",
+        anime.get("description"), anime.get("episodes"), anime.get("averageScore"),
+        start_year, cover_image.get("large"), anime.get("format"),
+        anime.get("chapters"), anime.get("volumes"), anime.get("source"),
+        (anime.get("endDate") or {}).get("year"), anime.get("duration")
     ))
 
     for synonym in anime.get("synonyms") or []:
@@ -477,10 +401,8 @@ def save_anime(anime):
         studio = edge.get("node") or {}
         studio_id = studio.get("id")
         studio_name = studio.get("name")
-
         if not studio_id or not studio_name:
             continue
-
         connection.execute("""
             INSERT OR REPLACE INTO studios (id, name, is_main)
             VALUES (?, ?, ?)
@@ -490,140 +412,86 @@ def save_anime(anime):
             VALUES (?, ?)
         """, (anime["id"], studio_id))
 
-    # =========================
-    # Save relationships
-    # =========================
-
-    relations = (
-        anime.get("relations")
-        or {}
-    )
-
-    edges = (
-        relations.get("edges")
-        or []
-    )
-
-    for edge in edges:
-
-        relation_type = edge.get(
-            "relationType"
-        )
-
-        node = edge.get(
-            "node"
-        )
-
+    relations = anime.get("relations") or {}
+    for edge in relations.get("edges") or []:
+        relation_type = edge.get("relationType")
+        node = edge.get("node")
         if not node:
             continue
-
-        target_id = node.get(
-            "id"
-        )
-
+        target_id = node.get("id")
         if not target_id:
             continue
-
         target_title_data = node.get("title") or {}
         target_title = (
             target_title_data.get("english")
             or target_title_data.get("romaji")
             or target_title_data.get("native")
         )
-
         if target_title:
             target_cover = node.get("coverImage") or {}
             connection.execute("""
-                INSERT OR IGNORE INTO works (
-                    id,
-                    title,
-                    type,
-                    format,
-                    cover_url
-                )
+                INSERT OR IGNORE INTO works
+                    (id, title, type, format, cover_url)
                 VALUES (?, ?, ?, ?, ?)
             """, (
-                target_id,
-                target_title,
-                node.get("type") or "ANIME",
-                node.get("format"),
-                target_cover.get("large")
+                target_id, target_title, node.get("type") or "ANIME",
+                node.get("format"), target_cover.get("large")
             ))
-
         connection.execute("""
-            INSERT OR REPLACE INTO work_relations (
-                source_id,
-                target_id,
-                relation_type
-            )
+            INSERT OR REPLACE INTO work_relations
+                (source_id, target_id, relation_type)
             VALUES (?, ?, ?)
-        """, (
-            anime["id"],
-            target_id,
-            relation_type
-        ))
+        """, (anime["id"], target_id, relation_type))
 
     connection.commit()
-
     connection.close()
 
 
 def save_cover_path(work_id, cover_path):
-    """Save the local path for a downloaded work cover."""
-
     connection = get_connection()
-
-    connection.execute("""
-        UPDATE works
-        SET cover_path = ?
-        WHERE id = ?
-    """, (cover_path, work_id))
-
+    connection.execute(
+        "UPDATE works SET cover_path = ? WHERE id = ?",
+        (cover_path, work_id)
+    )
     connection.commit()
     connection.close()
 
 
 def get_saved_anime():
-
     connection = get_connection()
-
-    results = connection.execute("""
-        SELECT *
-        FROM works
-        ORDER BY title
-    """).fetchall()
-
+    results = connection.execute(
+        "SELECT * FROM works ORDER BY title"
+    ).fetchall()
     connection.close()
-
     return results
 
 
-def get_relations(work_id):
-
+def get_work(work_id):
     connection = get_connection()
+    result = connection.execute(
+        "SELECT * FROM works WHERE id = ?",
+        (work_id,)
+    ).fetchone()
+    connection.close()
+    return result
 
+
+def get_relations(work_id):
+    connection = get_connection()
     results = connection.execute("""
         SELECT
             work_relations.*,
             works.title,
             works.format,
             works.type,
-            works.cover_url
-
+            works.cover_url,
+            works.cover_path
         FROM work_relations
-
-        LEFT JOIN works
-        ON works.id = work_relations.target_id
-
+        LEFT JOIN works ON works.id = work_relations.target_id
         WHERE work_relations.source_id = ?
-
         ORDER BY relation_type, title
-    """, (
-        work_id,
-    )).fetchall()
-
+    """, (work_id,)).fetchall()
     connection.close()
-
     return results
 
 
@@ -632,29 +500,18 @@ def get_relations(work_id):
 # =========================
 
 def add_to_library(work_id, status="Planning"):
-    """Add anime to user library with initial status."""
-
     connection = get_connection()
-
     connection.execute("""
-        INSERT OR REPLACE INTO user_library (
-            work_id,
-            status,
-            progress_episodes,
-            updated_date
-        )
+        INSERT OR REPLACE INTO user_library
+            (work_id, status, progress_episodes, updated_date)
         VALUES (?, ?, 0, CURRENT_TIMESTAMP)
     """, (work_id, status))
-
     connection.commit()
     connection.close()
 
 
 def get_library_by_status(status):
-    """Get all anime in library with specific status."""
-
     connection = get_connection()
-
     results = connection.execute("""
         SELECT
             works.*,
@@ -663,27 +520,17 @@ def get_library_by_status(status):
             user_library.progress_chapters,
             user_library.rating,
             user_library.notes
-
         FROM user_library
-
-        JOIN works
-        ON works.id = user_library.work_id
-
+        JOIN works ON works.id = user_library.work_id
         WHERE user_library.status = ?
-
         ORDER BY works.title
     """, (status,)).fetchall()
-
     connection.close()
-
     return results
 
 
 def get_all_library():
-    """Get all anime in user library."""
-
     connection = get_connection()
-
     results = connection.execute("""
         SELECT
             works.*,
@@ -692,68 +539,27 @@ def get_all_library():
             user_library.progress_chapters,
             user_library.rating,
             user_library.notes
-
         FROM user_library
-
-        JOIN works
-        ON works.id = user_library.work_id
-
-        ORDER BY user_library.status, works.title
+        JOIN works ON works.id = user_library.work_id
+        ORDER BY works.title
     """).fetchall()
-
     connection.close()
-
     return results
 
 
-def update_library_status(work_id, status):
-    """Update anime status in library."""
-
-    connection = get_connection()
-
-    connection.execute("""
-        UPDATE user_library
-        SET status = ?, updated_date = CURRENT_TIMESTAMP
-        WHERE work_id = ?
-    """, (status, work_id))
-
-    connection.commit()
-    connection.close()
-
-
 def update_library_progress(work_id, episodes=None, chapters=None):
-    """Update anime progress in library."""
-
     connection = get_connection()
-
     if episodes is not None:
         connection.execute("""
             UPDATE user_library
             SET progress_episodes = ?, updated_date = CURRENT_TIMESTAMP
             WHERE work_id = ?
         """, (episodes, work_id))
-
     if chapters is not None:
         connection.execute("""
             UPDATE user_library
             SET progress_chapters = ?, updated_date = CURRENT_TIMESTAMP
             WHERE work_id = ?
         """, (chapters, work_id))
-
     connection.commit()
     connection.close()
-
-
-def is_in_library(work_id):
-    """Check if anime is in user library."""
-
-    connection = get_connection()
-
-    result = connection.execute("""
-        SELECT work_id FROM user_library
-        WHERE work_id = ?
-    """, (work_id,)).fetchone()
-
-    connection.close()
-
-    return result is not None
