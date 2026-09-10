@@ -34,6 +34,7 @@ class WorkCard(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
+
         self.cover = QLabel()
         self.cover.setObjectName("coverFrame")
         self.cover.setFixedSize(202, 276)
@@ -45,11 +46,15 @@ class WorkCard(QFrame):
             progress = self._value("progress_episodes") or 0
             total = self._value("episodes") or 0
             if total and progress > 0:
+                # Keep the rail INSIDE the poster and clip both artwork and rail
+                # together, so the line always has exactly the same width as the cover.
                 line = QFrame(self.cover)
                 line.setObjectName("progressLine")
-                width = 202 if progress >= total else max(3, int(202 * progress / total))
-                line.setGeometry(0, 268, width, 8)
+                line.setAttribute(Qt.WA_TransparentForMouseEvents)
+                line.setGeometry(0, self.cover.height() - 7, self.cover.width(), 7)
                 line.setStyleSheet(f"QFrame#progressLine {{ background:{COLORS['accent']}; border:0; border-radius:0 0 9px 9px; }}")
+                if progress < total:
+                    line.setFixedWidth(max(4, round(self.cover.width() * progress / total)))
 
         title = QLabel(self._title())
         title.setObjectName("title")
@@ -89,8 +94,6 @@ class WorkCard(QFrame):
         if reply is not None: reply.deleteLater()
 
     def _set_cover(self, pixmap):
-        # Crop the artwork to the poster frame first. The rounded clipping belongs
-        # to the artwork, so the progress rail can share the exact same corners.
         size = self.cover.size()
         scaled = pixmap.scaled(size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
         x = max(0, (scaled.width() - size.width()) // 2)
