@@ -64,24 +64,24 @@ def _media_fields(include_details=False):
         id
         type
         title { romaji english native }
-        description
         episodes
-        status
         averageScore
         startDate { year month day }
-        endDate { year month day }
         coverImage { large }
         format
-        synonyms
-        chapters
-        volumes
-        source
-        duration
     """
     if not include_details:
         return base
 
     return base + """
+        description
+        status
+        endDate { year month day }
+        synonyms
+        chapters
+        volumes
+        source
+        duration
         studios {
             edges {
                 isMain
