@@ -1,6 +1,5 @@
 import sqlite3
 
-
 DATABASE_NAME = "anime_tracker.db"
 
 
@@ -66,7 +65,6 @@ def initialize_database():
             FOREIGN KEY (person_id) REFERENCES people(id)
         )
     """)
-
     columns = cursor.execute("PRAGMA table_info(works)").fetchall()
     column_names = {column["name"] for column in columns}
     for column, definition in {
@@ -75,7 +73,6 @@ def initialize_database():
     }.items():
         if column not in column_names:
             cursor.execute(f"ALTER TABLE works ADD COLUMN {column} {definition}")
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS alternate_titles (
             work_id INTEGER NOT NULL, title TEXT NOT NULL, language TEXT,
@@ -228,6 +225,27 @@ def set_episode_watched(work_id, episode_number, watched):
     return watched_count, total
 
 
+def set_episode_progress(work_id, progress):
+    """Set the library episode counter and, when episode rows exist, keep their watched state in sync."""
+    connection = get_connection()
+    work = connection.execute("SELECT episodes FROM works WHERE id = ?", (work_id,)).fetchone()
+    if not work or not connection.execute("SELECT 1 FROM user_library WHERE work_id = ?", (work_id,)).fetchone():
+        connection.close()
+        return
+    total = int(work["episodes"] or 0)
+    progress = max(0, min(int(progress), total)) if total else max(0, int(progress))
+    episode_count = connection.execute("SELECT COUNT(*) FROM episodes WHERE work_id = ?", (work_id,)).fetchone()[0]
+    if episode_count:
+        connection.execute("UPDATE episodes SET watched = CASE WHEN episode_number <= ? THEN 1 ELSE 0 END WHERE work_id = ?", (progress, work_id))
+        watched_count = connection.execute("SELECT COUNT(*) FROM episodes WHERE work_id = ? AND watched = 1", (work_id,)).fetchone()[0]
+        progress = watched_count
+    status = "Completed" if total and progress >= total else "Watching" if progress > 0 else "Planning"
+    connection.execute("UPDATE user_library SET progress_episodes = ?, status = ?, updated_date = CURRENT_TIMESTAMP WHERE work_id = ?",
+                       (progress, status, work_id))
+    connection.commit()
+    connection.close()
+
+
 def save_anime(anime):
     title_data = anime["title"]
     title = title_data.get("english") or title_data.get("romaji") or title_data.get("native")
@@ -248,7 +266,6 @@ def save_anime(anime):
           anime.get("averageScore"), start_year, cover_image.get("large"), anime.get("format"),
           anime.get("chapters"), anime.get("volumes"), anime.get("source"), (anime.get("endDate") or {}).get("year"),
           anime.get("duration")))
-
     for synonym in anime.get("synonyms") or []:
         connection.execute("INSERT OR IGNORE INTO alternate_titles (work_id, title, language) VALUES (?, ?, ?)",
                            (anime["id"], synonym, None))
