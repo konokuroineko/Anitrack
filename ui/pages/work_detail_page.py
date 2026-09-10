@@ -18,6 +18,7 @@ from database import (
     get_episodes,
     get_relations,
     get_staff,
+    get_work,
     set_episode_watched,
 )
 from ui.theme import COLORS, SPACING, muted_label_stylesheet
@@ -175,8 +176,9 @@ class WorkDetailPage(QWidget):
 
     def _episode_toggled(self, episode_number, checked):
         set_episode_watched(self._value("id"), episode_number, checked)
-        # Rebuild the page so the hero progress reflects the local change.
-        self.set_work(self.work)
+        refreshed = get_work(self._value("id"))
+        if refreshed:
+            self.set_work(refreshed)
 
     def _build_characters(self):
         section = InfoSection("Characters")
