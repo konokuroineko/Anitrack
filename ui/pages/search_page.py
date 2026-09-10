@@ -1,8 +1,8 @@
 from PySide6.QtCore import QObject, QThread, Qt, Signal
-from PySide6.QtWidgets import QComboBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from api import search_anime
-from ui.theme import COLORS, SPACING
+from ui.theme import COLORS
 from ui.widgets.work_card import WorkCard
 
 
@@ -41,44 +41,68 @@ class SearchPage(QWidget):
         self.has_next_page = False
         self.is_loading = False
         self.threads, self.workers = [], []
-        root = QVBoxLayout(self)
-        root.setContentsMargins(SPACING["xxl"], SPACING["xxl"], SPACING["xxl"], SPACING["xxl"])
-        root.setSpacing(SPACING["lg"])
 
-        heading = QLabel("Search")
-        heading.setStyleSheet(f"font-size: 30px; font-weight: 800; color: {COLORS['primary']};")
-        root.addWidget(heading)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(34, 30, 34, 28)
+        root.setSpacing(20)
+
+        intro = QVBoxLayout()
+        intro.setSpacing(3)
+        heading = QLabel("Discover")
+        heading.setStyleSheet(f"font-size: 34px; font-weight: 850; color: {COLORS['primary']};")
+        sub = QLabel("Search the AniList catalog and build your library.")
+        sub.setStyleSheet(f"font-size: 12px; color: {COLORS['muted']};")
+        intro.addWidget(heading)
+        intro.addWidget(sub)
+        root.addLayout(intro)
+
+        search_panel = QFrame()
+        search_panel.setStyleSheet(f"QFrame {{ background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: 16px; }}")
+        panel = QVBoxLayout(search_panel)
+        panel.setContentsMargins(12, 12, 12, 12)
+        panel.setSpacing(10)
 
         bar = QHBoxLayout()
+        bar.setSpacing(8)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search anime, manga, or novels")
-        self.search.setMinimumHeight(44)
+        self.search.setPlaceholderText("Title, character, franchise...")
+        self.search.setMinimumHeight(46)
+        self.search.setClearButtonEnabled(True)
         self.search_button = QPushButton("Search")
-        self.search_button.setMinimumHeight(44)
+        self.search_button.setMinimumHeight(46)
+        self.search_button.setMinimumWidth(100)
         bar.addWidget(self.search, 1)
         bar.addWidget(self.search_button)
-        root.addLayout(bar)
+        panel.addLayout(bar)
 
-        filter_row = QHBoxLayout()
+        type_row = QHBoxLayout()
+        type_label = QLabel("TYPE")
+        type_label.setStyleSheet(f"font-size: 10px; font-weight: 850; color: {COLORS['muted']}; letter-spacing: 1px;")
+        type_row.addWidget(type_label)
         self.media_filter = QComboBox()
         self.media_filter.addItems(["Anime", "Manga", "Novels"])
-        self.media_filter.setFixedWidth(150)
-        filter_row.addWidget(self.media_filter)
-        self.results_title = QLabel("Discover something new")
-        self.results_title.setStyleSheet(f"color: {COLORS['muted']}; font-size: 12px;")
-        filter_row.addSpacing(8)
-        filter_row.addWidget(self.results_title)
-        filter_row.addStretch()
-        root.addLayout(filter_row)
+        self.media_filter.setMinimumWidth(130)
+        type_row.addWidget(self.media_filter)
+        type_row.addStretch()
+        panel.addLayout(type_row)
+        root.addWidget(search_panel)
+
+        result_head = QHBoxLayout()
+        self.results_title = QLabel("Ready to search")
+        self.results_title.setStyleSheet(f"font-size: 15px; font-weight: 750; color: {COLORS['primary']};")
+        result_head.addWidget(self.results_title)
+        result_head.addStretch()
+        root.addLayout(result_head)
 
         self.results_scroll = InfiniteScrollArea()
         self.results_scroll.setWidgetResizable(True)
         self.results_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.results_scroll.setFrameShape(QFrame.NoFrame)
         self.grid_container = QWidget()
         self.grid_layout = QGridLayout(self.grid_container)
-        self.grid_layout.setContentsMargins(0, 4, 0, 4)
-        self.grid_layout.setHorizontalSpacing(SPACING["lg"])
-        self.grid_layout.setVerticalSpacing(SPACING["xl"])
+        self.grid_layout.setContentsMargins(4, 4, 4, 20)
+        self.grid_layout.setHorizontalSpacing(22)
+        self.grid_layout.setVerticalSpacing(30)
         self.results_scroll.setWidget(self.grid_container)
         self.results_scroll.scroll_to_bottom.connect(self.load_more_results)
         root.addWidget(self.results_scroll, 1)
@@ -136,7 +160,7 @@ class SearchPage(QWidget):
         if self.current_page == 1:
             self.clear_results()
         results = data["media"]
-        self.results_title.setText(f"{len(results)} results · page {self.current_page}")
+        self.results_title.setText(f"{len(results)} results  ·  page {self.current_page}")
         if not results and self.current_page == 1:
             self.show_message("No results found")
             return
@@ -158,17 +182,23 @@ class SearchPage(QWidget):
             text = "AniList is having server problems.\nPlease try again later."
         else:
             text = f"Search failed.\n{message}"
+        self.results_title.setText("Search unavailable")
         self.show_message(text)
         retry = QPushButton("Try again")
         retry.clicked.connect(self.search_clicked)
         self.grid_layout.addWidget(retry, 1, 0)
 
     def show_message(self, text):
+        panel = QFrame()
+        panel.setStyleSheet(f"background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: 18px;")
+        box = QVBoxLayout(panel)
+        box.setContentsMargins(35, 60, 35, 60)
         label = QLabel(text)
         label.setAlignment(Qt.AlignCenter)
         label.setWordWrap(True)
-        label.setStyleSheet(f"color: {COLORS['muted']}; font-size: 15px; padding: 60px;")
-        self.grid_layout.addWidget(label, 0, 0)
+        label.setStyleSheet(f"color: {COLORS['secondary']}; font-size: 14px; border: none;")
+        box.addWidget(label)
+        self.grid_layout.addWidget(panel, 0, 0, 1, 4)
 
     def clear_results(self):
         while self.grid_layout.count():
@@ -188,6 +218,8 @@ class SearchPage(QWidget):
                 cards.append(widget)
         for card in cards:
             self.grid_layout.removeWidget(card)
-        columns = max(1, self.results_scroll.viewport().width() // 224)
+        columns = max(1, self.results_scroll.viewport().width() // 230)
         for i, card in enumerate(cards):
             self.grid_layout.addWidget(card, i // columns, i % columns)
+        for col in range(columns):
+            self.grid_layout.setColumnStretch(col, 1)
