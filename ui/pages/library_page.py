@@ -61,8 +61,10 @@ class LibraryPage(QWidget):
                 reverse=True,
             )
         elif self.current_sort == "Recently Added":
+            # updated_date is not currently selected by get_all_library().
+            # Use a stable fallback until the database query exposes it.
             self.anime_list.sort(
-                key=lambda anime: anime["updated_date"] or "",
+                key=lambda anime: anime["id"],
                 reverse=True,
             )
 
