@@ -14,7 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from database import get_characters, get_episodes, get_relations, get_staff
+from database import get_characters, get_episodes, get_relations, get_staff, save_cover_path
+from image_cache import download_cover
 from ui.theme import COLORS, SPACING, muted_label_stylesheet
 from ui.widgets.character_card import CharacterCard
 from ui.widgets.info_section import InfoSection
@@ -47,8 +48,7 @@ class WorkDetailPage(QWidget):
         content = QWidget()
         self.content_layout = QVBoxLayout(content)
         self.content_layout.setContentsMargins(
-            SPACING['lg'], SPACING['lg'],
-            SPACING['lg'], SPACING['lg']
+            SPACING['lg'], SPACING['lg'], SPACING['lg'], SPACING['lg']
         )
         self.content_layout.setSpacing(SPACING['md'])
         self.scroll_area.setWidget(content)
@@ -74,16 +74,25 @@ class WorkDetailPage(QWidget):
             }}
         """)
         layout = QHBoxLayout(hero)
-        layout.setContentsMargins(
-            SPACING['xl'], SPACING['xl'],
-            SPACING['xl'], SPACING['xl']
-        )
+        layout.setContentsMargins(SPACING['xl'], SPACING['xl'], SPACING['xl'], SPACING['xl'])
         layout.setSpacing(SPACING['xl'])
 
         cover = QLabel()
         cover.setFixedSize(250, 350)
         cover.setAlignment(Qt.AlignCenter)
-        cover_path = self.work['cover_path']
+
+        cover_path = self._value("cover_path")
+        cover_url = self._value("cover_url")
+        if not cover_path and cover_url:
+            try:
+                cover_path = download_cover(self._value("id"), cover_url)
+                if cover_path:
+                    save_cover_path(self._value("id"), cover_path)
+                    self.work = dict(self.work)
+                    self.work["cover_path"] = cover_path
+            except Exception:
+                cover_path = None
+
         if cover_path:
             pixmap = QPixmap(cover_path)
             if not pixmap.isNull():
@@ -93,36 +102,30 @@ class WorkDetailPage(QWidget):
         layout.addWidget(cover, alignment=Qt.AlignTop)
 
         details = QVBoxLayout()
-        title = QLabel(self.work['title'])
-        title.setStyleSheet(
-            f"color: {COLORS['primary']}; font-size: 32px; font-weight: 700;"
-        )
+        title = QLabel(self._value("title") or "Untitled")
+        title.setStyleSheet(f"color: {COLORS['primary']}; font-size: 32px; font-weight: 700;")
         title.setWordWrap(True)
         details.addWidget(title)
 
         metadata = " • ".join(
             str(value) for value in [
-                self.work['format'],
-                self.work['start_year'],
-                f"{self.work['episodes']} Episodes" if self.work['episodes'] else None,
+                self._value("format"),
+                self._value("start_year"),
+                f"{self._value('episodes')} Episodes" if self._value("episodes") else None,
             ] if value
         )
         metadata_label = QLabel(metadata or "Media details unavailable")
         metadata_label.setStyleSheet(muted_label_stylesheet())
         details.addWidget(metadata_label)
 
-        score = self.work['score']
+        score = self._value("score")
         score_label = QLabel(f"★ {score}%" if score else "No score")
-        score_label.setStyleSheet(
-            f"color: {COLORS['accent']}; font-size: 18px; font-weight: 600;"
-        )
+        score_label.setStyleSheet(f"color: {COLORS['accent']}; font-size: 18px; font-weight: 600;")
         details.addWidget(score_label)
 
-        progress = self.work['progress_episodes'] or 0
-        total = self.work['episodes'] or 0
-        progress_label = QLabel(
-            f"Episode {progress} / {total}" if total else f"Episode {progress}"
-        )
+        progress = self._value("progress_episodes") or 0
+        total = self._value("episodes") or 0
+        progress_label = QLabel(f"Episode {progress} / {total}" if total else f"Episode {progress}")
         progress_label.setStyleSheet(muted_label_stylesheet())
         details.addSpacing(SPACING['md'])
         details.addWidget(progress_label)
@@ -133,18 +136,16 @@ class WorkDetailPage(QWidget):
 
     def _build_description(self):
         section = InfoSection("Description")
-        description = QLabel(self.work['description'] or "No description saved.")
+        description = QLabel(self._value("description") or "No description saved.")
         description.setWordWrap(True)
         description.setTextFormat(Qt.PlainText)
-        description.setStyleSheet(
-            f"color: {COLORS['secondary']}; font-size: 14px; line-height: 1.4;"
-        )
+        description.setStyleSheet(f"color: {COLORS['secondary']}; font-size: 14px; line-height: 1.4;")
         section.add_widget(description)
         return section
 
     def _build_characters(self):
         section = InfoSection("Characters")
-        characters = get_characters(self.work['id'])
+        characters = get_characters(self._value("id"))
         if not characters:
             section.add_message("No character data imported yet.")
             return section
@@ -160,7 +161,7 @@ class WorkDetailPage(QWidget):
 
     def _build_staff(self):
         section = InfoSection("Staff")
-        staff = get_staff(self.work['id'])
+        staff = get_staff(self._value("id"))
         if not staff:
             section.add_message("No staff data imported yet.")
             return section
@@ -176,7 +177,7 @@ class WorkDetailPage(QWidget):
 
     def _build_relations(self):
         section = InfoSection("Relations")
-        relations = get_relations(self.work['id'])
+        relations = get_relations(self._value("id"))
         if not relations:
             section.add_message("No related works imported yet.")
             return section
@@ -194,6 +195,14 @@ class WorkDetailPage(QWidget):
         section = InfoSection("Music")
         section.add_message("Music data is not imported yet.")
         return section
+
+    def _value(self, key):
+        if hasattr(self.work, "get"):
+            return self.work.get(key)
+        try:
+            return self.work[key]
+        except (KeyError, IndexError, TypeError):
+            return None
 
     def _grid_widget(self, grid):
         widget = QWidget()
