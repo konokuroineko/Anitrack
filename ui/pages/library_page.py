@@ -12,15 +12,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from database import (
-    get_all_library,
-    get_library_by_status,
-    update_library_progress,
-)
-
+from database import get_all_library, update_library_progress
 from ui.theme import COLORS, SPACING, muted_label_stylesheet
-from ui.widgets.WorkCard import WorkCard
-from ui.widgets.section_header import SectionHeader
+from ui.widgets.work_card import WorkCard
 
 
 class LibraryPage(QWidget):
@@ -55,8 +49,7 @@ class LibraryPage(QWidget):
             }
             wanted_status = status_map[self.current_status]
             self.anime_list = [
-                anime
-                for anime in self.all_anime
+                anime for anime in self.all_anime
                 if anime["status"] == wanted_status
             ]
 
@@ -133,9 +126,7 @@ class LibraryPage(QWidget):
 
         divider = QFrame()
         divider.setFixedHeight(1)
-        divider.setStyleSheet(
-            f"background: {COLORS['border']}; border: none;"
-        )
+        divider.setStyleSheet(f"background: {COLORS['border']}; border: none;")
         old_layout.addWidget(divider)
 
         self.scroll_area = QScrollArea()
@@ -167,9 +158,7 @@ class LibraryPage(QWidget):
 
             icon = QLabel("✦")
             icon.setAlignment(Qt.AlignCenter)
-            icon.setStyleSheet(
-                f"color: {COLORS['accent']}; font-size: 42px;"
-            )
+            icon.setStyleSheet(f"color: {COLORS['accent']}; font-size: 42px;")
 
             message = QLabel(
                 "No titles match this filter" if self.all_anime else "Your library is empty"
