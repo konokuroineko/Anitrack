@@ -42,22 +42,18 @@ class WorkCard(QFrame):
         root.addWidget(self.cover)
         self._load_cover()
 
+        # This is the visual orange accent line on the poster, not an episode control.
+        # It is deliberately always present on library posters.
         if mode == "library":
-            progress = max(0, int(self._value("progress_episodes") or 0))
-            total = max(0, int(self._value("episodes") or 0))
-            if total > 0 and progress > 0:
-                ratio = min(1.0, progress / total)
-                line_width = max(4, round(self.cover.width() * ratio))
-                self.progress_line = QFrame(self)
-                self.progress_line.setObjectName("progressLine")
-                self.progress_line.setAttribute(Qt.WA_TransparentForMouseEvents)
-                self.progress_line.setGeometry(0, 269, line_width, 7)
-                self.progress_line.setStyleSheet(
-                    f"QFrame#progressLine {{ background:{COLORS['accent']}; border:0; "
-                    f"border-bottom-left-radius:10px; border-bottom-right-radius:10px; "
-                    f"border-top-left-radius:3px; border-top-right-radius:3px; }}"
-                )
-                self.progress_line.raise_()
+            self.cover_accent = QFrame(self.cover)
+            self.cover_accent.setObjectName("coverAccent")
+            self.cover_accent.setAttribute(Qt.WA_TransparentForMouseEvents)
+            self.cover_accent.setGeometry(0, self.cover.height() - 5, self.cover.width(), 5)
+            self.cover_accent.setStyleSheet(
+                f"QFrame#coverAccent {{ background:{COLORS['accent']}; border:0; "
+                f"border-bottom-left-radius:10px; border-bottom-right-radius:10px; }}"
+            )
+            self.cover_accent.raise_()
 
         title = QLabel(self._title())
         title.setObjectName("title")
