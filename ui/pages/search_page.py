@@ -1,7 +1,6 @@
 from PySide6.QtCore import QObject, QThread, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -36,14 +35,17 @@ class SearchWorker(QObject):
     finished = Signal(object)
     error = Signal(str)
 
-    def __init__(self, search_text, page=1):
+    def __init__(self, search_text, page=1, media_type="ANIME"):
         super().__init__()
         self.search_text = search_text
         self.page = page
+        self.media_type = media_type
 
     def run(self):
         try:
-            self.finished.emit(search_anime(self.search_text, self.page))
+            self.finished.emit(
+                search_anime(self.search_text, self.page, media_type=self.media_type)
+            )
         except Exception as error:
             self.error.emit(str(error))
 
@@ -55,6 +57,7 @@ class SearchPage(QWidget):
         super().__init__()
         self.add_to_library = add_to_library
         self.current_search = ""
+        self.current_media_type = "ANIME"
         self.current_page = 1
         self.has_next_page = False
         self.is_loading = False
@@ -64,14 +67,16 @@ class SearchPage(QWidget):
         self.grid_layout = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"])
+        layout.setContentsMargins(
+            SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"]
+        )
         layout.setSpacing(SPACING["md"])
 
         layout.addWidget(SectionHeader("Search"))
 
         search_layout = QHBoxLayout()
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search anime...")
+        self.search.setPlaceholderText("Search anime, manga, or novels...")
         self.search_button = QPushButton("Search")
         search_layout.addWidget(self.search, 1)
         search_layout.addWidget(self.search_button)
@@ -80,7 +85,9 @@ class SearchPage(QWidget):
         filters = QHBoxLayout()
         self.media_filter = QComboBox()
         self.media_filter.addItems(["Anime", "Manga", "Novels"])
-        self.media_filter.setToolTip("Media type filter; anime is currently supported")
+        self.media_filter.setToolTip(
+            "Anime uses AniList anime entries. Manga and Novels use AniList manga entries."
+        )
         filters.addWidget(self.media_filter)
         filters.addStretch()
         layout.addLayout(filters)
@@ -106,12 +113,28 @@ class SearchPage(QWidget):
 
         self.search_button.clicked.connect(self.search_clicked)
         self.search.returnPressed.connect(self.search_clicked)
+        self.media_filter.currentIndexChanged.connect(self.media_filter_changed)
+
+    def media_filter_changed(self):
+        if not self.current_search:
+            return
+        self.search_clicked()
+
+    def selected_media_type(self):
+        # AniList exposes novels as MANGA-type media rather than a separate
+        # MediaType enum. A later refinement can filter those by source.
+        return {
+            "Anime": "ANIME",
+            "Manga": "MANGA",
+            "Novels": "MANGA",
+        }[self.media_filter.currentText()]
 
     def search_clicked(self):
         search_text = self.search.text().strip()
         if not search_text:
             return
         self.current_search = search_text
+        self.current_media_type = self.selected_media_type()
         self.current_page = 1
         self.has_next_page = False
         self.is_loading = True
@@ -128,7 +151,7 @@ class SearchPage(QWidget):
 
     def start_search(self, search_text, page):
         thread = QThread()
-        worker = SearchWorker(search_text, page)
+        worker = SearchWorker(search_text, page, self.current_media_type)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self.search_finished)
@@ -137,8 +160,12 @@ class SearchPage(QWidget):
         worker.error.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(lambda: self.threads.remove(thread) if thread in self.threads else None)
-        thread.finished.connect(lambda: self.workers.remove(worker) if worker in self.workers else None)
+        thread.finished.connect(
+            lambda: self.threads.remove(thread) if thread in self.threads else None
+        )
+        thread.finished.connect(
+            lambda: self.workers.remove(worker) if worker in self.workers else None
+        )
         self.threads.append(thread)
         self.workers.append(worker)
         thread.start()
@@ -158,10 +185,11 @@ class SearchPage(QWidget):
             card = WorkCard(
                 anime,
                 mode="search",
-                add_callback=self.add_to_library
+                add_callback=self.add_to_library,
             )
             card.clicked.connect(self.anime_selected)
             self.grid_layout.addWidget(card)
+        self._reflow_cards()
 
     def search_error(self, message):
         self.search_button.setEnabled(True)
@@ -170,7 +198,7 @@ class SearchPage(QWidget):
         self.show_message("Could not reach AniList.\nTry again.", error=True)
         retry_button = QPushButton("Retry")
         retry_button.clicked.connect(self.search_clicked)
-        self.grid_layout.addWidget(retry_button)
+        self.grid_layout.addWidget(retry_button, 0, 0)
 
     def show_message(self, message, muted=False, error=False):
         label = QLabel(message)
