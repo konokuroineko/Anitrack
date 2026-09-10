@@ -67,11 +67,8 @@ class SearchPage(QWidget):
         self.grid_layout = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(
-            SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"]
-        )
+        layout.setContentsMargins(SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"])
         layout.setSpacing(SPACING["md"])
-
         layout.addWidget(SectionHeader("Search"))
 
         search_layout = QHBoxLayout()
@@ -116,13 +113,10 @@ class SearchPage(QWidget):
         self.media_filter.currentIndexChanged.connect(self.media_filter_changed)
 
     def media_filter_changed(self):
-        if not self.current_search:
-            return
-        self.search_clicked()
+        if self.current_search:
+            self.search_clicked()
 
     def selected_media_type(self):
-        # AniList exposes novels as MANGA-type media rather than a separate
-        # MediaType enum. A later refinement can filter those by source.
         return {
             "Anime": "ANIME",
             "Manga": "MANGA",
@@ -160,12 +154,8 @@ class SearchPage(QWidget):
         worker.error.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(
-            lambda: self.threads.remove(thread) if thread in self.threads else None
-        )
-        thread.finished.connect(
-            lambda: self.workers.remove(worker) if worker in self.workers else None
-        )
+        thread.finished.connect(lambda: self.threads.remove(thread) if thread in self.threads else None)
+        thread.finished.connect(lambda: self.workers.remove(worker) if worker in self.workers else None)
         self.threads.append(thread)
         self.workers.append(worker)
         thread.start()
@@ -182,11 +172,7 @@ class SearchPage(QWidget):
             self.show_message("No results found.\nTry another search.")
             return
         for anime in results:
-            card = WorkCard(
-                anime,
-                mode="search",
-                add_callback=self.add_to_library,
-            )
+            card = WorkCard(anime, mode="search", add_callback=self.add_to_library)
             card.clicked.connect(self.anime_selected)
             self.grid_layout.addWidget(card)
         self._reflow_cards()
@@ -195,7 +181,17 @@ class SearchPage(QWidget):
         self.search_button.setEnabled(True)
         self.is_loading = False
         self.clear_results()
-        self.show_message("Could not reach AniList.\nTry again.", error=True)
+
+        if "(403)" in message and "temporarily disabled" in message.lower():
+            text = "AniList is temporarily unavailable.\nYour offline library still works."
+        elif "(429)" in message:
+            text = "AniList is rate-limiting requests.\nPlease try again shortly."
+        elif "(5" in message[:20]:
+            text = "AniList is having server problems.\nPlease try again later."
+        else:
+            text = f"Search failed.\n{message}"
+
+        self.show_message(text, error=True)
         retry_button = QPushButton("Retry")
         retry_button.clicked.connect(self.search_clicked)
         self.grid_layout.addWidget(retry_button, 0, 0)
