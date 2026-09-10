@@ -1,27 +1,9 @@
 import threading
 
 from PySide6.QtCore import QObject, Signal, Qt
-from PySide6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QMainWindow,
-    QPushButton,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
-from database import (
-    add_to_library,
-    get_work,
-    initialize_database,
-    save_anime,
-    save_characters,
-    save_cover_path,
-    save_episodes,
-    save_staff,
-)
+from database import add_to_library, get_work, initialize_database, save_anime, save_characters, save_cover_path, save_episodes, save_staff
 from image_cache import download_cover
 from ui.navigation import NavigationController
 from ui.theme import COLORS, application_stylesheet
@@ -53,11 +35,11 @@ class ImageWorker(QObject):
 
 class NavigationButton(QPushButton):
     def __init__(self, icon_text, label):
-        super().__init__(f"  {icon_text}    {label}")
-        self.label = label
+        super().__init__(f"{icon_text}   {label}")
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(44)
+        self.setMinimumHeight(42)
+        self.setProperty("navButton", True)
 
 
 class MainWindow(QMainWindow):
@@ -65,7 +47,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         initialize_database()
         self.setWindowTitle("Anitrack")
-        self.resize(1280, 800)
+        self.resize(1320, 820)
         self.image_threads = []
         self.navigation_buttons = {}
         self.setup_ui()
@@ -78,20 +60,18 @@ class MainWindow(QMainWindow):
 
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(220)
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(18, 22, 18, 18)
-        sidebar_layout.setSpacing(6)
+        sidebar.setFixedWidth(232)
+        side = QVBoxLayout(sidebar)
+        side.setContentsMargins(18, 20, 18, 18)
+        side.setSpacing(5)
 
-        brand = QLabel("ANITRACK")
-        brand.setObjectName("brand")
-        brand.setStyleSheet(f"color: {COLORS['primary']}; font-size: 19px; font-weight: 800; letter-spacing: 2px; padding: 8px 10px 4px;")
-        sidebar_layout.addWidget(brand)
-
-        subtitle = QLabel("Personal media tracker")
-        subtitle.setStyleSheet(f"color: {COLORS['muted']}; font-size: 11px; padding: 0 10px;")
-        sidebar_layout.addWidget(subtitle)
-        sidebar_layout.addSpacing(26)
+        logo = QLabel("ANITRACK")
+        logo.setStyleSheet(f"color: {COLORS['primary']}; font-size: 20px; font-weight: 800; letter-spacing: 2px; padding: 8px 10px 0;")
+        side.addWidget(logo)
+        sub = QLabel("Your personal media library")
+        sub.setStyleSheet(f"color: {COLORS['muted']}; font-size: 11px; padding: 0 10px;")
+        side.addWidget(sub)
+        side.addSpacing(24)
 
         self.stack = QStackedWidget()
         self.navigation = NavigationController(self.stack)
@@ -99,7 +79,6 @@ class MainWindow(QMainWindow):
         self.library_page = LibraryPage()
         self.search_page = SearchPage(self.add_to_library)
         self.work_detail_page = WorkDetailPage()
-
         pages = {
             "home": HomePage(),
             "collections": self.library_page,
@@ -113,34 +92,19 @@ class MainWindow(QMainWindow):
         for name, page in pages.items():
             self.navigation.add_page(name, page)
 
-        navigation_items = [
-            ("⌂", "Home", "home"),
-            ("▦", "Library", "collections"),
-            ("⌕", "Search", "search"),
-            ("♙", "People", "person"),
-            ("♧", "Characters", "character"),
-            ("◇", "Relations", "relationships"),
-        ]
+        for title, items in [
+            ("LIBRARY", [("⌂", "Home", "home"), ("▦", "Library", "collections"), ("⌕", "Search", "search")]),
+            ("EXPLORE", [("♙", "People", "person"), ("♧", "Characters", "character"), ("◇", "Relations", "relationships")]),
+        ]:
+            label = QLabel(title)
+            label.setStyleSheet(f"color: {COLORS['muted']}; font-size: 10px; font-weight: 800; letter-spacing: 1.4px; padding: 8px 10px 4px;")
+            side.addWidget(label)
+            for icon, text, page_name in items:
+                self._add_nav(side, icon, text, page_name)
+            side.addSpacing(8)
 
-        section_label = QLabel("BROWSE")
-        section_label.setStyleSheet(f"color: {COLORS['muted']}; font-size: 10px; font-weight: 700; padding: 8px 10px 4px; letter-spacing: 1px;")
-        sidebar_layout.addWidget(section_label)
-
-        for icon, label, page_name in navigation_items:
-            button = NavigationButton(icon, label)
-            self.navigation_buttons[page_name] = button
-            button.clicked.connect(lambda checked=False, name=page_name: self.navigation.show(name))
-            sidebar_layout.addWidget(button)
-
-        sidebar_layout.addStretch()
-        settings_label = QLabel("SYSTEM")
-        settings_label.setStyleSheet(f"color: {COLORS['muted']}; font-size: 10px; font-weight: 700; padding: 8px 10px 4px; letter-spacing: 1px;")
-        sidebar_layout.addWidget(settings_label)
-
-        settings_button = NavigationButton("⚙", "Settings")
-        self.navigation_buttons["settings"] = settings_button
-        settings_button.clicked.connect(lambda: self.navigation.show("settings"))
-        sidebar_layout.addWidget(settings_button)
+        side.addStretch()
+        self._add_nav(side, "⚙", "Settings", "settings")
 
         self.navigation.page_changed.connect(self.update_navigation_state)
         self.library_page.work_selected.connect(self.show_work_details)
@@ -151,34 +115,19 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(sidebar)
         root_layout.addWidget(self.stack, 1)
         self.setCentralWidget(root)
-
         self.setStyleSheet(application_stylesheet() + f"""
-            QFrame#sidebar {{
-                background: {COLORS['sidebar']};
-                border-right: 1px solid {COLORS['border']};
-            }}
-            QPushButton {{ text-align: left; }}
-            QFrame#sidebar QPushButton {{
-                background: transparent;
-                border: 1px solid transparent;
-                color: {COLORS['secondary']};
-                border-radius: 9px;
-                padding: 10px 12px;
-                font-size: 13px;
-                font-weight: 500;
-            }}
-            QFrame#sidebar QPushButton:hover {{
-                background: {COLORS['panel']};
-                color: {COLORS['primary']};
-            }}
-            QFrame#sidebar QPushButton:checked {{
-                background: {COLORS['accent_soft']};
-                border-color: #604528;
-                color: {COLORS['accent_hover']};
-                font-weight: 700;
-            }}
+            QFrame#sidebar {{ background: {COLORS['sidebar']}; border-right: 1px solid {COLORS['border']}; }}
+            QPushButton[navButton="true"] {{ background: transparent; border: 1px solid transparent; color: {COLORS['secondary']}; border-radius: 10px; padding: 10px 12px; text-align: left; font-size: 13px; font-weight: 600; }}
+            QPushButton[navButton="true"]:hover {{ background: {COLORS['surface']}; color: {COLORS['primary']}; }}
+            QPushButton[navButton="true"]:checked {{ background: {COLORS['accent_soft']}; border-color: #5d432c; color: {COLORS['accent_hover']}; }}
         """)
         self.navigation.show("home")
+
+    def _add_nav(self, layout, icon, label, page_name):
+        button = NavigationButton(icon, label)
+        self.navigation_buttons[page_name] = button
+        button.clicked.connect(lambda checked=False, name=page_name: self.navigation.show(name))
+        layout.addWidget(button)
 
     def update_navigation_state(self, page_name):
         for name, button in self.navigation_buttons.items():
@@ -189,7 +138,6 @@ class MainWindow(QMainWindow):
         self.navigation.show("work_detail")
 
     def show_search_work(self, work):
-        """Search results are API records, so import the full record before opening it."""
         try:
             from api import get_media_details
             details = get_media_details(work["id"])
@@ -203,10 +151,8 @@ class MainWindow(QMainWindow):
             self.show_work_details(work)
 
     def show_relation(self, relation):
-        work_id = relation["target_id"] if relation is not None else None
-        if not work_id:
-            return
-        work = get_work(work_id)
+        work_id = relation.get("target_id") if relation else None
+        work = get_work(work_id) if work_id else None
         if work:
             self.show_work_details(work)
 
@@ -217,7 +163,7 @@ class MainWindow(QMainWindow):
             save_episodes(anime["id"], anime.get("streamingEpisodes"))
             save_staff(anime["id"], (anime.get("staff") or {}).get("edges"))
             add_to_library(anime["id"], "Planning")
-            button.setText("Added; caching cover...")
+            button.setText("Added")
             button.setEnabled(False)
             self.start_cover_download(anime["id"], (anime.get("coverImage") or {}).get("large"), button)
         except Exception as error:
@@ -226,7 +172,6 @@ class MainWindow(QMainWindow):
 
     def start_cover_download(self, work_id, image_url, button):
         if not image_url:
-            button.setText("Added")
             return
         worker = ImageWorker(work_id, image_url)
         worker.finished.connect(self.cover_download_finished)
