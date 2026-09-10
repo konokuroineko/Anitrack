@@ -2,40 +2,39 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
 from database import get_all_library
-from ui.theme import COLORS, SPACING, muted_label_stylesheet
+from ui.theme import COLORS, SPACING
 
 
 class SettingsPage(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(SPACING["xl"], SPACING["xl"], SPACING["xl"], SPACING["xl"])
+        layout.setContentsMargins(SPACING["xxl"], SPACING["xxl"], SPACING["xxl"], SPACING["xxl"])
         layout.setSpacing(SPACING["lg"])
 
         title = QLabel("Settings")
-        title.setStyleSheet(f"font-size: 30px; font-weight: 750; color: {COLORS['primary']};")
+        title.setStyleSheet(f"font-size: 30px; font-weight: 800; color: {COLORS['primary']};")
         layout.addWidget(title)
-
-        subtitle = QLabel("Local application settings and data information")
-        subtitle.setStyleSheet(muted_label_stylesheet())
+        subtitle = QLabel("Application and local data")
+        subtitle.setStyleSheet(f"color: {COLORS['muted']};")
         layout.addWidget(subtitle)
 
-        info = QFrame()
-        info.setStyleSheet(f"QFrame {{ background: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 12px; }}")
-        info_layout = QVBoxLayout(info)
-        info_layout.setContentsMargins(SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"])
-
+        panel = QFrame()
+        panel.setStyleSheet(f"QFrame {{ background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: 16px; }}")
+        box = QVBoxLayout(panel)
+        box.setContentsMargins(24, 20, 24, 20)
+        box.setSpacing(0)
         library_count = len(list(get_all_library()))
-        for heading, value in [
-            ("Library titles", str(library_count)),
-            ("Database", "Local SQLite database"),
-            ("Covers", "Cached locally when available"),
-            ("AniList", "Used for online metadata and search"),
-        ]:
-            row = QLabel(f"{heading}\n{value}")
+        rows = [
+            ("Library", f"{library_count} saved titles"),
+            ("Storage", "Local SQLite database"),
+            ("Artwork", "Cached locally when downloaded"),
+            ("Metadata", "AniList powers online search and detail import"),
+        ]
+        for name, value in rows:
+            row = QLabel(f"{name}\n{value}")
             row.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            row.setStyleSheet(f"color: {COLORS['secondary']}; padding: 8px 0; border: none;")
-            info_layout.addWidget(row)
-
-        layout.addWidget(info)
+            row.setStyleSheet(f"color: {COLORS['secondary']}; padding: 14px 0; border-bottom: 1px solid {COLORS['border']};")
+            box.addWidget(row)
+        layout.addWidget(panel)
         layout.addStretch()
