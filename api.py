@@ -168,10 +168,10 @@ def get_media_details(media_id):
         Media(id: $id) {{
             {_media_fields(include_details=True)}
             airingSchedule(perPage: 50) {{
-                nodes {
+                nodes {{
                     airingAt
                     episode
-                }
+                }}
             }}
         }}
     }}
