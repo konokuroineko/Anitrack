@@ -18,41 +18,43 @@ from ui.widgets.work_card import WorkCard
 
 
 class LibraryPage(QWidget):
+    """A status-specific collection page.
+
+    The old combined Library view is intentionally gone from the navigation.
+    Each instance represents exactly one status: Watching, Completed, or Planned.
+    """
+
     work_selected = Signal(object)
 
-    def __init__(self):
+    STATUS_MAP = {
+        "Watching": "Watching",
+        "Completed": "Completed",
+        "Planned": "Planning",
+    }
+
+    def __init__(self, status="Watching"):
         super().__init__()
+        self.status = status if status in self.STATUS_MAP else "Watching"
         self.all_anime = []
         self.anime_list = []
-        self.current_status = "All"
         self.current_sort = "Recently Added"
         self.grid_container = None
         self.grid_layout = None
         self.scroll_area = None
         self.sort_box = None
-        self.status_buttons = {}
         self.refresh()
 
     def refresh(self):
         self.all_anime = list(get_all_library())
-        self._apply_filters()
+        wanted_status = self.STATUS_MAP[self.status]
+        self.anime_list = [
+            anime for anime in self.all_anime
+            if anime["status"] == wanted_status
+        ]
+        self._apply_sort()
         self._build_page()
 
-    def _apply_filters(self):
-        if self.current_status == "All":
-            self.anime_list = list(self.all_anime)
-        else:
-            status_map = {
-                "Watching": "Watching",
-                "Completed": "Completed",
-                "Planned": "Planning",
-            }
-            wanted_status = status_map[self.current_status]
-            self.anime_list = [
-                anime for anime in self.all_anime
-                if anime["status"] == wanted_status
-            ]
-
+    def _apply_sort(self):
         if self.current_sort == "Title":
             self.anime_list.sort(key=lambda anime: (anime["title"] or "").lower())
         elif self.current_sort == "Release Year":
@@ -61,12 +63,7 @@ class LibraryPage(QWidget):
                 reverse=True,
             )
         elif self.current_sort == "Recently Added":
-            # updated_date is not currently selected by get_all_library().
-            # Use a stable fallback until the database query exposes it.
-            self.anime_list.sort(
-                key=lambda anime: anime["id"],
-                reverse=True,
-            )
+            self.anime_list.sort(key=lambda anime: anime["id"], reverse=True)
 
     def _build_page(self):
         old_layout = self.layout()
@@ -86,13 +83,11 @@ class LibraryPage(QWidget):
         title_row = QHBoxLayout()
         title_column = QVBoxLayout()
 
-        title = QLabel("Library")
+        title = QLabel(self.status)
         title.setStyleSheet(
             f"font-size: 30px; font-weight: 750; color: {COLORS['primary']};"
         )
-        subtitle = QLabel(
-            f"{len(self.anime_list)} of {len(self.all_anime)} titles shown"
-        )
+        subtitle = QLabel(self._subtitle())
         subtitle.setStyleSheet(muted_label_stylesheet())
         title_column.addWidget(title)
         title_column.addWidget(subtitle)
@@ -110,21 +105,6 @@ class LibraryPage(QWidget):
         self.sort_box.currentTextChanged.connect(self._sort_changed)
         title_row.addWidget(self.sort_box)
         old_layout.addLayout(title_row)
-
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(SPACING["sm"])
-        self.status_buttons = {}
-        for label in ["All", "Watching", "Completed", "Planned"]:
-            button = QPushButton(label)
-            button.setCheckable(True)
-            button.setChecked(label == self.current_status)
-            button.setCursor(Qt.PointingHandCursor)
-            button.setMinimumWidth(90)
-            button.clicked.connect(self._status_changed)
-            self.status_buttons[label] = button
-            toolbar.addWidget(button)
-        toolbar.addStretch()
-        old_layout.addLayout(toolbar)
 
         divider = QFrame()
         divider.setFixedHeight(1)
@@ -144,6 +124,12 @@ class LibraryPage(QWidget):
 
         self._populate_grid()
 
+    def _subtitle(self):
+        count = len(self.anime_list)
+        if count == 1:
+            return "1 title"
+        return f"{count} titles"
+
     def _populate_grid(self):
         if not self.grid_layout:
             return
@@ -162,17 +148,14 @@ class LibraryPage(QWidget):
             icon.setAlignment(Qt.AlignCenter)
             icon.setStyleSheet(f"color: {COLORS['accent']}; font-size: 42px;")
 
-            message = QLabel(
-                "No titles match this filter" if self.all_anime else "Your library is empty"
-            )
+            message = QLabel(f"Nothing in {self.status.lower()} yet")
             message.setAlignment(Qt.AlignCenter)
             message.setStyleSheet(
                 f"color: {COLORS['primary']}; font-size: 22px; font-weight: 700;"
             )
 
             prompt = QLabel(
-                "Try another status filter." if self.all_anime
-                else "Search for something you want to watch."
+                "Search for something to add to your collection."
             )
             prompt.setAlignment(Qt.AlignCenter)
             prompt.setStyleSheet(muted_label_stylesheet())
@@ -208,17 +191,7 @@ class LibraryPage(QWidget):
         super().resizeEvent(event)
         self._populate_grid()
 
-    def _status_changed(self):
-        clicked = self.sender()
-        if not clicked:
-            return
-        self.current_status = clicked.text()
-        for label, button in self.status_buttons.items():
-            button.setChecked(label == self.current_status)
-        self._apply_filters()
-        self._populate_grid()
-
     def _sort_changed(self, sort_name):
         self.current_sort = sort_name
-        self._apply_filters()
+        self._apply_sort()
         self._populate_grid()
