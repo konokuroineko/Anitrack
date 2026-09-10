@@ -15,6 +15,10 @@ COLORS = {
     "accent_soft": "#332416",
     "success": "#74c58a",
     "danger": "#e27878",
+    "panel": "#14181c",
+    "panel_soft": "#181d22",
+    "card": "#14181c",
+    "card_hover": "#1d2329",
 }
 
 FONT_SIZES = {"tiny": 10, "small": 11, "body": 13, "subtitle": 12, "large": 16, "heading": 22, "page_title": 30}
