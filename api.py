@@ -1,39 +1,28 @@
 import requests
 import time
-import urllib3
 
 
 ANILIST_URL = "https://graphql.anilist.co"
 
-# Retry settings for handling network issues
+# Retry settings for handling transient network issues.
 MAX_RETRIES = 3
-RETRY_DELAY = 1  # seconds (will double each retry)
+RETRY_DELAY = 1
 
 
 def anilist_request(query, variables=None):
-    """
-    Make a request to AniList GraphQL API with retry logic.
-    
-    Handles network errors, SSL errors, and timeouts gracefully.
-    """
-
+    """Make a request to AniList GraphQL API with retry logic."""
     last_error = None
-    verify_ssl = True
 
     for attempt in range(MAX_RETRIES):
-
         try:
-
             response = requests.post(
                 ANILIST_URL,
                 json={
                     "query": query,
-                    "variables": variables or {}
+                    "variables": variables or {},
                 },
                 timeout=30,
-                verify=verify_ssl
             )
-
             data = response.json()
 
             if response.status_code >= 400:
@@ -44,64 +33,27 @@ def anilist_request(query, variables=None):
                 )
 
             if "errors" in data:
-                raise Exception(
-                    data["errors"][0]["message"]
-                )
+                raise Exception(data["errors"][0]["message"])
 
             return data["data"]
 
         except (
-            requests.exceptions.SSLError,
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,
-            requests.exceptions.ChunkedEncodingError
+            requests.exceptions.ChunkedEncodingError,
         ) as error:
-
             last_error = error
-
-            certificate_error = (
-                isinstance(error, requests.exceptions.SSLError)
-                and (
-                    "CERTIFICATE_VERIFY_FAILED" in str(error)
-                    or "Hostname mismatch" in str(error)
-                )
-            )
-
-            if certificate_error and verify_ssl:
-                verify_ssl = False
-                urllib3.disable_warnings(
-                    urllib3.exceptions.InsecureRequestWarning
-                )
-                print(
-                    "AniList certificate verification failed; "
-                    "retrying through the local VPN connection."
-                )
-                continue
-
             if attempt < MAX_RETRIES - 1:
-
                 wait_time = RETRY_DELAY * (2 ** attempt)
-
                 print(
                     f"Network error (attempt {attempt + 1}/{MAX_RETRIES}): "
                     f"{error}. Retrying in {wait_time}s..."
                 )
-
                 time.sleep(wait_time)
-
             else:
-
-                print(
-                    f"Failed after {MAX_RETRIES} attempts: {error}"
-                )
-
+                print(f"Failed after {MAX_RETRIES} attempts: {error}")
         except requests.exceptions.RequestException as error:
-
-            # Other request errors (not retryable)
-
             raise error
-
-    # If we got here, all retries failed
 
     raise Exception(
         f"Network error after {MAX_RETRIES} attempts. "
@@ -110,148 +62,135 @@ def anilist_request(query, variables=None):
     )
 
 
-def search_anime(
-    search,
-    page=1,
-    per_page=20
-):
-
+def search_anime(search, page=1, per_page=20, media_type="ANIME"):
+    """Search AniList for anime or manga-based media."""
     query = """
-    query (
-        $search: String,
-        $page: Int,
-        $perPage: Int
-    ) {
-
-        Page(
-            page: $page,
-            perPage: $perPage
-        ) {
-
+    query ($search: String, $page: Int, $perPage: Int, $type: MediaType) {
+        Page(page: $page, perPage: $perPage) {
             pageInfo {
                 currentPage
                 lastPage
                 hasNextPage
             }
-
-            media(
-                search: $search,
-                type: ANIME
-            ) {
-
+            media(search: $search, type: $type) {
                 id
-
+                type
                 title {
                     romaji
                     english
                     native
                 }
-
                 description
-
                 episodes
                 status
                 averageScore
-
-                startDate {
-                    year
-                    month
-                    day
-                }
-
-                coverImage {
-                    large
-                }
-
+                startDate { year month day }
+                endDate { year month day }
+                coverImage { large }
                 format
                 synonyms
                 chapters
                 volumes
                 source
                 duration
-
-                endDate {
-                    year
-                    month
-                    day
-                }
-
-                studios {
-                    edges {
-                        isMain
-                        node {
-                            id
-                            name
-                        }
-                    }
-                }
-
-                characters(perPage: 10, sort: ROLE) {
-                    edges {
-                        node {
-                            id
-                            name {
-                                full
-                            }
-                            image {
-                                large
-                            }
-                        }
-                    }
-                }
-
-                staff(perPage: 15) {
-                    edges {
-                        role
-                        node {
-                            id
-                            name {
-                                full
-                            }
-                            image {
-                                large
-                            }
-                        }
-                    }
-                }
-
-                relations {
-
-                    edges {
-
-                        relationType
-
-                        node {
-
-                            id
-
-                            type
-                            format
-
-                            title {
-                                romaji
-                                english
-                                native
-                            }
-
-                            coverImage {
-                                large
-                            }
-                        }
-                    }
-                }
             }
         }
     }
     """
+
+    if media_type not in {"ANIME", "MANGA"}:
+        raise ValueError("media_type must be ANIME or MANGA")
 
     data = anilist_request(
         query,
         {
             "search": search,
             "page": page,
-            "perPage": per_page
-        }
+            "perPage": per_page,
+            "type": media_type,
+        },
     )
-
     return data["Page"]
+
+
+def get_media_details(media_id):
+    """Fetch the heavier data needed by a work detail page."""
+    query = """
+    query ($id: Int) {
+        Media(id: $id) {
+            id
+            type
+            title { romaji english native }
+            description
+            episodes
+            status
+            averageScore
+            startDate { year month day }
+            endDate { year month day }
+            coverImage { large }
+            format
+            synonyms
+            chapters
+            volumes
+            source
+            duration
+
+            studios {
+                edges {
+                    isMain
+                    node { id name }
+                }
+            }
+
+            characters(perPage: 50, sort: ROLE) {
+                edges {
+                    node {
+                        id
+                        name { full }
+                        image { large }
+                    }
+                    role
+                    voiceActors(perPage: 10) {
+                        id
+                        name { full }
+                        languageV2
+                        image { large }
+                    }
+                }
+            }
+
+            staff(perPage: 50) {
+                edges {
+                    role
+                    node {
+                        id
+                        name { full }
+                        image { large }
+                      }
+                }
+            }
+
+            relations {
+                edges {
+                    relationType
+                    node {
+                        id
+                        type
+                        format
+                        title { romaji english native }
+                        coverImage { large }
+                    }
+                }
+            }
+
+            airingSchedule(perPage: 50) {
+                nodes {
+                    airingAt
+                    episode
+                }
+            }
+        }
+    }
+    """
+    data = anilist_request(query, {"id": media_id})
+    return data["Media"]
