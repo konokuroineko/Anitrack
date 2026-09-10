@@ -68,7 +68,6 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
         self.image_threads = []
         self.navigation_buttons = {}
-        self.current_collection_page = "watching"
         self.setup_ui()
 
     def setup_ui(self):
@@ -97,17 +96,13 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.navigation = NavigationController(self.stack)
 
-        self.watching_page = LibraryPage("Watching")
-        self.completed_page = LibraryPage("Completed")
-        self.planned_page = LibraryPage("Planned")
+        self.library_page = LibraryPage()
         self.search_page = SearchPage(self.add_to_library)
         self.work_detail_page = WorkDetailPage()
 
         pages = {
             "home": HomePage(),
-            "watching": self.watching_page,
-            "completed": self.completed_page,
-            "planned": self.planned_page,
+            "collections": self.library_page,
             "search": self.search_page,
             "work_detail": self.work_detail_page,
             "person": PersonPage(),
@@ -120,23 +115,21 @@ class MainWindow(QMainWindow):
 
         navigation_items = [
             ("⌂", "Home", "home"),
-            ("◷", "Watching", "watching"),
-            ("✓", "Completed", "completed"),
-            ("＋", "Planned", "planned"),
+            ("▦", "Library", "collections"),
             ("⌕", "Search", "search"),
             ("♙", "People", "person"),
             ("♧", "Characters", "character"),
             ("◇", "Relations", "relationships"),
         ]
 
-        section_label = QLabel("COLLECTION")
+        section_label = QLabel("BROWSE")
         section_label.setStyleSheet(f"color: {COLORS['muted']}; font-size: 10px; font-weight: 700; padding: 8px 10px 4px; letter-spacing: 1px;")
         sidebar_layout.addWidget(section_label)
 
         for icon, label, page_name in navigation_items:
             button = NavigationButton(icon, label)
             self.navigation_buttons[page_name] = button
-            button.clicked.connect(lambda checked=False, name=page_name: self.show_page(name))
+            button.clicked.connect(lambda checked=False, name=page_name: self.navigation.show(name))
             sidebar_layout.addWidget(button)
 
         sidebar_layout.addStretch()
@@ -146,15 +139,13 @@ class MainWindow(QMainWindow):
 
         settings_button = NavigationButton("⚙", "Settings")
         self.navigation_buttons["settings"] = settings_button
-        settings_button.clicked.connect(lambda: self.show_page("settings"))
+        settings_button.clicked.connect(lambda: self.navigation.show("settings"))
         sidebar_layout.addWidget(settings_button)
 
         self.navigation.page_changed.connect(self.update_navigation_state)
-        self.watching_page.work_selected.connect(self.show_work_details_from_collection)
-        self.completed_page.work_selected.connect(self.show_work_details_from_collection)
-        self.planned_page.work_selected.connect(self.show_work_details_from_collection)
+        self.library_page.work_selected.connect(self.show_work_details)
         self.search_page.anime_selected.connect(self.show_search_work)
-        self.work_detail_page.back_requested.connect(self.return_to_collection)
+        self.work_detail_page.back_requested.connect(lambda: self.navigation.show("collections"))
         self.work_detail_page.relation_selected.connect(self.show_relation)
 
         root_layout.addWidget(sidebar)
@@ -187,31 +178,11 @@ class MainWindow(QMainWindow):
                 font-weight: 700;
             }}
         """)
-        self.show_page("home")
-
-    def show_page(self, page_name):
-        if page_name in {"watching", "completed", "planned"}:
-            self.current_collection_page = page_name
-        self.navigation.show(page_name)
-
-    def return_to_collection(self):
-        self.navigation.show(self.current_collection_page)
+        self.navigation.show("home")
 
     def update_navigation_state(self, page_name):
         for name, button in self.navigation_buttons.items():
             button.setChecked(name == page_name)
-
-    def show_work_details_from_collection(self, work):
-        self.current_collection_page = self._collection_page_for_work(work)
-        self.show_work_details(work)
-
-    def _collection_page_for_work(self, work):
-        status = work.get("status")
-        if status == "Completed":
-            return "completed"
-        if status == "Planning":
-            return "planned"
-        return "watching"
 
     def show_work_details(self, work):
         self.work_detail_page.set_work(work)
