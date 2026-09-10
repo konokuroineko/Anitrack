@@ -1,138 +1,94 @@
 from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
-from PySide6.QtWidgets import (
-    QFrame,
-    QGraphicsDropShadowEffect,
-    QLabel,
-    QPushButton,
-    QSpinBox,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QSpinBox, QVBoxLayout
 
-from ui.theme import (
-    COLORS,
-    SPACING,
-    muted_label_stylesheet,
-)
-
+from ui.theme import COLORS
 from ui.widgets.progress_bar import ProgressBar
 
 
 class WorkCard(QFrame):
-
     clicked = Signal(object)
     progress_changed = Signal(int)
     add_requested = Signal(object)
 
-    def __init__(
-        self,
-        work,
-        progress_editable=False,
-        mode="library",
-        add_callback=None,
-        parent=None
-    ):
+    def __init__(self, work, progress_editable=False, mode="library", add_callback=None, parent=None):
         super().__init__(parent)
-
         self.work = work
         self.mode = mode
         self.add_callback = add_callback
         self._network_manager = QNetworkAccessManager(self)
         self._cover_reply = None
-
-        self.setObjectName("workCard")
+        self.setObjectName("posterCard")
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedWidth(206)
-        self.setMinimumHeight(345)
+        self.setFixedWidth(202)
         self.setStyleSheet(f"""
-            QFrame#workCard {{
-                background: {COLORS['card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 12px;
-            }}
-            QFrame#workCard:hover {{
-                background: {COLORS['card_hover']};
-                border-color: {COLORS['border_hover']};
-            }}
-            QLabel {{
-                border: none;
-                background: transparent;
-            }}
-            QPushButton {{
-                border-radius: 7px;
-                padding: 7px 10px;
-            }}
+            QFrame#posterCard {{ background: transparent; border: none; }}
+            QFrame#posterCard:hover QLabel#coverFrame {{ border: 2px solid {COLORS['accent']}; }}
+            QLabel {{ background: transparent; border: none; }}
+            QLabel#coverFrame {{ background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: 10px; }}
+            QLabel#title {{ color: {COLORS['primary']}; font-size: 13px; font-weight: 760; }}
+            QLabel#meta {{ color: {COLORS['muted']}; font-size: 11px; }}
+            QPushButton#add {{ background: {COLORS['accent']}; color: #111318; border: none; border-radius: 8px; padding: 7px; font-weight: 800; }}
+            QPushButton#add:hover {{ background: {COLORS['accent_hover']}; }}
+            QSpinBox {{ min-height: 28px; border-radius: 7px; }}
         """)
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(22)
-        shadow.setOffset(0, 6)
-        shadow.setColor(Qt.black)
-        self.setGraphicsEffect(shadow)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 13)
-        layout.setSpacing(8)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(8)
 
         self.cover = QLabel()
-        self.cover.setFixedSize(180, 250)
+        self.cover.setObjectName("coverFrame")
+        self.cover.setFixedSize(202, 276)
         self.cover.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.cover, alignment=Qt.AlignCenter)
+        root.addWidget(self.cover)
         self._load_cover()
 
         title = QLabel(self._title())
+        title.setObjectName("title")
         title.setWordWrap(True)
-        title.setAlignment(Qt.AlignLeft)
-        title.setMaximumHeight(42)
+        title.setMaximumHeight(38)
         title.setToolTip(title.text())
-        title.setStyleSheet(f"""
-            color: {COLORS['primary']};
-            font-size: 13px;
-            font-weight: 700;
-        """)
-        layout.addWidget(title)
+        root.addWidget(title)
 
-        subtitle = self._subtitle()
-        if mode == "search":
-            score = self._value("averageScore")
-            if score:
-                subtitle = f"{subtitle} • Score: {score}" if subtitle else f"Score: {score}"
-
-        if subtitle:
-            subtitle_label = QLabel(subtitle)
-            subtitle_label.setStyleSheet(muted_label_stylesheet())
-            layout.addWidget(subtitle_label)
-
-        progress = self._value("progress_episodes")
-        total = self._value("episodes")
+        meta_parts = []
+        fmt = self._value("format")
+        year = self._value("start_year")
+        if not year:
+            year = (self._value("startDate") or {}).get("year")
+        if fmt:
+            meta_parts.append(str(fmt).title())
+        if year:
+            meta_parts.append(str(year))
+        score = self._value("averageScore")
+        if mode == "search" and score:
+            meta_parts.append(f"★ {score}")
+        meta = QLabel("  ·  ".join(meta_parts))
+        meta.setObjectName("meta")
+        root.addWidget(meta)
 
         if mode == "search":
             add_button = QPushButton("+  Add to Library")
+            add_button.setObjectName("add")
             add_button.setCursor(Qt.PointingHandCursor)
             add_button.clicked.connect(self._add_clicked)
-            layout.addWidget(add_button)
-        elif progress is not None or total is not None:
-            progress_value = progress or 0
-            total_value = total or 0
-            progress_bar = ProgressBar(progress_value, total_value)
-            layout.addWidget(progress_bar)
-            progress_label = QLabel(
-                f"{progress_value} / {total_value}" if total_value else f"{progress_value} watched"
-            )
-            progress_label.setStyleSheet(muted_label_stylesheet())
-            layout.addWidget(progress_label)
-
+            root.addWidget(add_button)
+        else:
+            progress = self._value("progress_episodes") or 0
+            total = self._value("episodes") or 0
+            if total or progress:
+                root.addWidget(ProgressBar(progress, total))
+                progress_label = QLabel(f"{progress} / {total}" if total else f"{progress} watched")
+                progress_label.setObjectName("meta")
+                root.addWidget(progress_label)
             if progress_editable:
                 progress_box = QSpinBox()
-                progress_box.setRange(0, total_value or 99999)
-                progress_box.setValue(progress_value)
-                progress_box.setPrefix("Episode ")
-                progress_box.setCursor(Qt.PointingHandCursor)
+                progress_box.setRange(0, total or 99999)
+                progress_box.setValue(progress)
+                progress_box.setPrefix("Episode  ")
                 progress_box.valueChanged.connect(self.progress_changed)
-                layout.addWidget(progress_box)
-
-        layout.addStretch()
+                root.addWidget(progress_box)
 
     def _load_cover(self):
         cover_path = self._value("cover_path")
@@ -141,16 +97,9 @@ class WorkCard(QFrame):
             if not pixmap.isNull():
                 self._set_cover(pixmap)
                 return
-
-        cover_url = self._value("cover_url")
-        if not cover_url:
-            cover_image = self._value("coverImage") or {}
-            cover_url = cover_image.get("large")
-
+        cover_url = self._value("cover_url") or (self._value("coverImage") or {}).get("large")
         if cover_url:
-            self._cover_reply = self._network_manager.get(
-                QNetworkRequest(QUrl(str(cover_url)))
-            )
+            self._cover_reply = self._network_manager.get(QNetworkRequest(QUrl(str(cover_url))))
             self._cover_reply.finished.connect(self._cover_finished)
 
     def _cover_finished(self):
@@ -158,20 +107,14 @@ class WorkCard(QFrame):
         self._cover_reply = None
         if reply is None:
             return
-
         if reply.error() == reply.NetworkError.NoError:
-            data = reply.readAll()
             pixmap = QPixmap()
-            if pixmap.loadFromData(data):
+            if pixmap.loadFromData(reply.readAll()):
                 self._set_cover(pixmap)
         reply.deleteLater()
 
     def _set_cover(self, pixmap):
-        self.cover.setPixmap(pixmap.scaled(
-            self.cover.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
-        ))
+        self.cover.setPixmap(pixmap.scaled(self.cover.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def _add_clicked(self):
         self.add_requested.emit(self.work)
@@ -186,14 +129,6 @@ class WorkCard(QFrame):
         except (KeyError, TypeError, IndexError):
             return None
 
-    def _subtitle(self):
-        start_year = self._value("start_year")
-        if not start_year:
-            start_date = self._value("startDate") or {}
-            start_year = start_date.get("year")
-        parts = [self._value("format"), start_year]
-        return " • ".join(str(part) for part in parts if part)
-
     def _title(self):
         title = self._value("title")
         if isinstance(title, dict):
@@ -203,4 +138,5 @@ class WorkCard(QFrame):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self.work)
+            return
         super().mousePressEvent(event)
