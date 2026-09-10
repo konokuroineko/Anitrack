@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt, Signal, QUrl
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap, QPainter, QPainterPath
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout
 
@@ -23,7 +23,6 @@ class WorkCard(QFrame):
         self.setFixedWidth(202)
         self.setStyleSheet(f"""
             QFrame#posterCard {{ background: transparent; border: none; }}
-            QFrame#posterCard:hover QLabel#coverFrame {{ border: 2px solid {COLORS['accent']}; }}
             QLabel {{ background: transparent; border: none; }}
             QLabel#coverFrame {{ background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: 10px; }}
             QLabel#title {{ color: {COLORS['primary']}; font-size: 13px; font-weight: 760; }}
@@ -35,7 +34,6 @@ class WorkCard(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
-
         self.cover = QLabel()
         self.cover.setObjectName("coverFrame")
         self.cover.setFixedSize(202, 276)
@@ -43,8 +41,6 @@ class WorkCard(QFrame):
         root.addWidget(self.cover)
         self._load_cover()
 
-        # The library card is intentionally information-light. Episode controls
-        # belong to the title's detail page, not on top of the library grid.
         if mode == "library":
             progress = self._value("progress_episodes") or 0
             total = self._value("episodes") or 0
@@ -61,76 +57,66 @@ class WorkCard(QFrame):
         title.setMaximumHeight(38)
         title.setToolTip(title.text())
         root.addWidget(title)
-
         meta_parts = []
         fmt = self._value("format")
         year = self._value("start_year") or (self._value("startDate") or {}).get("year")
-        if fmt:
-            meta_parts.append(str(fmt).title())
-        if year:
-            meta_parts.append(str(year))
+        if fmt: meta_parts.append(str(fmt).title())
+        if year: meta_parts.append(str(year))
         score = self._value("averageScore")
-        if mode == "search" and score:
-            meta_parts.append(f"★ {score}")
+        if mode == "search" and score: meta_parts.append(f"★ {score}")
         if meta_parts:
-            meta = QLabel("  ·  ".join(meta_parts))
-            meta.setObjectName("meta")
-            root.addWidget(meta)
-
+            meta = QLabel("  ·  ".join(meta_parts)); meta.setObjectName("meta"); root.addWidget(meta)
         if mode == "search":
             add_button = QPushButton("+  Add to Library")
-            add_button.setObjectName("add")
-            add_button.setCursor(Qt.PointingHandCursor)
-            add_button.clicked.connect(self._add_clicked)
-            root.addWidget(add_button)
+            add_button.setObjectName("add"); add_button.setCursor(Qt.PointingHandCursor)
+            add_button.clicked.connect(self._add_clicked); root.addWidget(add_button)
 
     def _load_cover(self):
         cover_path = self._value("cover_path")
         if cover_path:
             pixmap = QPixmap(str(cover_path))
-            if not pixmap.isNull():
-                self._set_cover(pixmap)
-                return
+            if not pixmap.isNull(): self._set_cover(pixmap); return
         cover_url = self._value("cover_url") or (self._value("coverImage") or {}).get("large")
         if cover_url:
             self._cover_reply = self._network_manager.get(QNetworkRequest(QUrl(str(cover_url))))
             self._cover_reply.finished.connect(self._cover_finished)
 
     def _cover_finished(self):
-        reply = self._cover_reply
-        self._cover_reply = None
+        reply = self._cover_reply; self._cover_reply = None
         if reply is not None and reply.error() == reply.NetworkError.NoError:
             pixmap = QPixmap()
-            if pixmap.loadFromData(reply.readAll()):
-                self._set_cover(pixmap)
-        if reply is not None:
-            reply.deleteLater()
+            if pixmap.loadFromData(reply.readAll()): self._set_cover(pixmap)
+        if reply is not None: reply.deleteLater()
 
     def _set_cover(self, pixmap):
-        # Keep the full artwork visible so the accent line always has a stable edge.
-        self.cover.setPixmap(pixmap.scaled(self.cover.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        # Crop the artwork to the poster frame first. The rounded clipping belongs
+        # to the artwork, so the progress rail can share the exact same corners.
+        size = self.cover.size()
+        scaled = pixmap.scaled(size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        x = max(0, (scaled.width() - size.width()) // 2)
+        y = max(0, (scaled.height() - size.height()) // 2)
+        cropped = scaled.copy(x, y, size.width(), size.height())
+        result = QPixmap(size); result.fill(Qt.transparent)
+        painter = QPainter(result); painter.setRenderHint(QPainter.Antialiasing)
+        path = QPainterPath(); path.addRoundedRect(0, 0, size.width(), size.height(), 10, 10)
+        painter.setClipPath(path); painter.drawPixmap(0, 0, cropped); painter.end()
+        self.cover.setPixmap(result)
 
     def _add_clicked(self):
         self.add_requested.emit(self.work)
-        if self.add_callback:
-            self.add_callback(self.work, self.sender())
+        if self.add_callback: self.add_callback(self.work, self.sender())
 
     def _value(self, key):
-        if hasattr(self.work, "get"):
-            return self.work.get(key)
-        try:
-            return self.work[key]
-        except (KeyError, TypeError, IndexError):
-            return None
+        if hasattr(self.work, "get"): return self.work.get(key)
+        try: return self.work[key]
+        except (KeyError, TypeError, IndexError): return None
 
     def _title(self):
         title = self._value("title")
-        if isinstance(title, dict):
-            return title.get("english") or title.get("romaji") or title.get("native") or "Untitled"
+        if isinstance(title, dict): return title.get("english") or title.get("romaji") or title.get("native") or "Untitled"
         return title or "Untitled"
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.clicked.emit(self.work)
-            return
+            self.clicked.emit(self.work); return
         super().mousePressEvent(event)
