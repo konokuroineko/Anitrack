@@ -1,58 +1,37 @@
 from PySide6.QtCore import QObject, QThread, Qt, Signal
-from PySide6.QtWidgets import (
-    QComboBox,
-    QGridLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QComboBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from api import search_anime
-from ui.theme import COLORS, SPACING, muted_label_stylesheet
-from ui.widgets.section_header import SectionHeader
+from ui.theme import COLORS, SPACING
 from ui.widgets.work_card import WorkCard
 
 
 class InfiniteScrollArea(QScrollArea):
     scroll_to_bottom = Signal()
-
     def __init__(self):
         super().__init__()
-        self.verticalScrollBar().valueChanged.connect(self.check_scroll_position)
-
-    def check_scroll_position(self):
-        scrollbar = self.verticalScrollBar()
-        if scrollbar.value() >= scrollbar.maximum() - 100:
+        self.verticalScrollBar().valueChanged.connect(self._check)
+    def _check(self):
+        bar = self.verticalScrollBar()
+        if bar.value() >= bar.maximum() - 120:
             self.scroll_to_bottom.emit()
 
 
 class SearchWorker(QObject):
     finished = Signal(object)
     error = Signal(str)
-
-    def __init__(self, search_text, page=1, media_type="ANIME"):
+    def __init__(self, search_text, page, media_type):
         super().__init__()
-        self.search_text = search_text
-        self.page = page
-        self.media_type = media_type
-
+        self.search_text, self.page, self.media_type = search_text, page, media_type
     def run(self):
         try:
-            self.finished.emit(
-                search_anime(self.search_text, self.page, media_type=self.media_type)
-            )
+            self.finished.emit(search_anime(self.search_text, self.page, media_type=self.media_type))
         except Exception as error:
             self.error.emit(str(error))
 
 
 class SearchPage(QWidget):
     anime_selected = Signal(object)
-
     def __init__(self, add_to_library):
         super().__init__()
         self.add_to_library = add_to_library
@@ -61,52 +40,48 @@ class SearchPage(QWidget):
         self.current_page = 1
         self.has_next_page = False
         self.is_loading = False
-        self.threads = []
-        self.workers = []
-        self.grid_container = None
-        self.grid_layout = None
+        self.threads, self.workers = [], []
+        root = QVBoxLayout(self)
+        root.setContentsMargins(SPACING["xxl"], SPACING["xxl"], SPACING["xxl"], SPACING["xxl"])
+        root.setSpacing(SPACING["lg"])
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"])
-        layout.setSpacing(SPACING["md"])
-        layout.addWidget(SectionHeader("Search"))
+        heading = QLabel("Search")
+        heading.setStyleSheet(f"font-size: 30px; font-weight: 800; color: {COLORS['primary']};")
+        root.addWidget(heading)
 
-        search_layout = QHBoxLayout()
+        bar = QHBoxLayout()
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search anime, manga, or novels...")
+        self.search.setPlaceholderText("Search anime, manga, or novels")
+        self.search.setMinimumHeight(44)
         self.search_button = QPushButton("Search")
-        search_layout.addWidget(self.search, 1)
-        search_layout.addWidget(self.search_button)
-        layout.addLayout(search_layout)
+        self.search_button.setMinimumHeight(44)
+        bar.addWidget(self.search, 1)
+        bar.addWidget(self.search_button)
+        root.addLayout(bar)
 
-        filters = QHBoxLayout()
+        filter_row = QHBoxLayout()
         self.media_filter = QComboBox()
         self.media_filter.addItems(["Anime", "Manga", "Novels"])
-        self.media_filter.setToolTip(
-            "Anime uses AniList anime entries. Manga and Novels use AniList manga entries."
-        )
-        filters.addWidget(self.media_filter)
-        filters.addStretch()
-        layout.addLayout(filters)
-
-        title_layout = QHBoxLayout()
-        self.results_title = QLabel("Results")
-        self.results_title.setObjectName("heading")
-        title_layout.addWidget(self.results_title)
-        title_layout.addStretch()
-        layout.addLayout(title_layout)
+        self.media_filter.setFixedWidth(150)
+        filter_row.addWidget(self.media_filter)
+        self.results_title = QLabel("Discover something new")
+        self.results_title.setStyleSheet(f"color: {COLORS['muted']}; font-size: 12px;")
+        filter_row.addSpacing(8)
+        filter_row.addWidget(self.results_title)
+        filter_row.addStretch()
+        root.addLayout(filter_row)
 
         self.results_scroll = InfiniteScrollArea()
         self.results_scroll.setWidgetResizable(True)
         self.results_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.grid_container = QWidget()
         self.grid_layout = QGridLayout(self.grid_container)
-        self.grid_layout.setContentsMargins(0, 0, 0, 0)
-        self.grid_layout.setHorizontalSpacing(SPACING["md"])
-        self.grid_layout.setVerticalSpacing(SPACING["md"])
+        self.grid_layout.setContentsMargins(0, 4, 0, 4)
+        self.grid_layout.setHorizontalSpacing(SPACING["lg"])
+        self.grid_layout.setVerticalSpacing(SPACING["xl"])
         self.results_scroll.setWidget(self.grid_container)
         self.results_scroll.scroll_to_bottom.connect(self.load_more_results)
-        layout.addWidget(self.results_scroll, 1)
+        root.addWidget(self.results_scroll, 1)
 
         self.search_button.clicked.connect(self.search_clicked)
         self.search.returnPressed.connect(self.search_clicked)
@@ -117,35 +92,30 @@ class SearchPage(QWidget):
             self.search_clicked()
 
     def selected_media_type(self):
-        return {
-            "Anime": "ANIME",
-            "Manga": "MANGA",
-            "Novels": "MANGA",
-        }[self.media_filter.currentText()]
+        return {"Anime": "ANIME", "Manga": "MANGA", "Novels": "MANGA"}[self.media_filter.currentText()]
 
     def search_clicked(self):
-        search_text = self.search.text().strip()
-        if not search_text:
+        text = self.search.text().strip()
+        if not text or self.is_loading:
             return
-        self.current_search = search_text
+        self.current_search = text
         self.current_media_type = self.selected_media_type()
         self.current_page = 1
         self.has_next_page = False
-        self.is_loading = True
         self.clear_results()
-        self.show_message("Searching AniList...", muted=True)
+        self.results_title.setText(f"Searching for “{text}”")
         self.search_button.setEnabled(False)
-        self.start_search(search_text, 1)
+        self.is_loading = True
+        self.start_search(text, 1)
 
     def load_more_results(self):
-        if not self.current_search or not self.has_next_page or self.is_loading:
-            return
-        self.is_loading = True
-        self.start_search(self.current_search, self.current_page + 1)
+        if self.current_search and self.has_next_page and not self.is_loading:
+            self.is_loading = True
+            self.start_search(self.current_search, self.current_page + 1)
 
-    def start_search(self, search_text, page):
+    def start_search(self, text, page):
         thread = QThread()
-        worker = SearchWorker(search_text, page, self.current_media_type)
+        worker = SearchWorker(text, page, self.current_media_type)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self.search_finished)
@@ -154,22 +124,21 @@ class SearchPage(QWidget):
         worker.error.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(lambda: self.threads.remove(thread) if thread in self.threads else None)
-        thread.finished.connect(lambda: self.workers.remove(worker) if worker in self.workers else None)
         self.threads.append(thread)
         self.workers.append(worker)
         thread.start()
 
-    def search_finished(self, page_data):
+    def search_finished(self, data):
         self.search_button.setEnabled(True)
         self.is_loading = False
-        self.current_page = page_data["pageInfo"]["currentPage"]
-        self.has_next_page = page_data["pageInfo"]["hasNextPage"]
+        self.current_page = data["pageInfo"]["currentPage"]
+        self.has_next_page = data["pageInfo"]["hasNextPage"]
         if self.current_page == 1:
             self.clear_results()
-        results = page_data["media"]
+        results = data["media"]
+        self.results_title.setText(f"{len(results)} results · page {self.current_page}")
         if not results and self.current_page == 1:
-            self.show_message("No results found.\nTry another search.")
+            self.show_message("No results found")
             return
         for anime in results:
             card = WorkCard(anime, mode="search", add_callback=self.add_to_library)
@@ -181,7 +150,6 @@ class SearchPage(QWidget):
         self.search_button.setEnabled(True)
         self.is_loading = False
         self.clear_results()
-
         if "(403)" in message and "temporarily disabled" in message.lower():
             text = "AniList is temporarily unavailable.\nYour offline library still works."
         elif "(429)" in message:
@@ -190,20 +158,16 @@ class SearchPage(QWidget):
             text = "AniList is having server problems.\nPlease try again later."
         else:
             text = f"Search failed.\n{message}"
+        self.show_message(text)
+        retry = QPushButton("Try again")
+        retry.clicked.connect(self.search_clicked)
+        self.grid_layout.addWidget(retry, 1, 0)
 
-        self.show_message(text, error=True)
-        retry_button = QPushButton("Retry")
-        retry_button.clicked.connect(self.search_clicked)
-        self.grid_layout.addWidget(retry_button, 0, 0)
-
-    def show_message(self, message, muted=False, error=False):
-        label = QLabel(message)
+    def show_message(self, text):
+        label = QLabel(text)
         label.setAlignment(Qt.AlignCenter)
         label.setWordWrap(True)
-        if muted:
-            label.setStyleSheet(muted_label_stylesheet())
-        elif error:
-            label.setStyleSheet(f"color: {COLORS['danger']};")
+        label.setStyleSheet(f"color: {COLORS['muted']}; font-size: 15px; padding: 60px;")
         self.grid_layout.addWidget(label, 0, 0)
 
     def clear_results(self):
@@ -217,25 +181,13 @@ class SearchPage(QWidget):
         self._reflow_cards()
 
     def _reflow_cards(self):
-        if not self.grid_layout:
-            return
-        cards = [
-            self.grid_layout.itemAt(index).widget()
-            for index in range(self.grid_layout.count())
-            if self.grid_layout.itemAt(index).widget()
-            and isinstance(self.grid_layout.itemAt(index).widget(), WorkCard)
-        ]
+        cards = []
+        for i in range(self.grid_layout.count()):
+            widget = self.grid_layout.itemAt(i).widget()
+            if isinstance(widget, WorkCard):
+                cards.append(widget)
         for card in cards:
             self.grid_layout.removeWidget(card)
-        columns = max(1, self.results_scroll.viewport().width() // 196)
-        for index, card in enumerate(cards):
-            self.grid_layout.addWidget(card, index // columns, index % columns)
-
-    def closeEvent(self, event):
-        for thread in self.threads[:]:
-            if thread.isRunning():
-                thread.quit()
-                if not thread.wait(2000):
-                    thread.terminate()
-                    thread.wait()
-        event.accept()
+        columns = max(1, self.results_scroll.viewport().width() // 224)
+        for i, card in enumerate(cards):
+            self.grid_layout.addWidget(card, i // columns, i % columns)
