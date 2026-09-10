@@ -17,10 +17,7 @@ def anilist_request(query, variables=None):
         try:
             response = requests.post(
                 ANILIST_URL,
-                json={
-                    "query": query,
-                    "variables": variables or {},
-                },
+                json={"query": query, "variables": variables or {}},
                 timeout=30,
             )
             data = response.json()
@@ -62,44 +59,96 @@ def anilist_request(query, variables=None):
     )
 
 
+def _media_fields(include_details=True):
+    """Return the shared GraphQL fields used by search and detail queries."""
+    base = """
+        id
+        type
+        title { romaji english native }
+        description
+        episodes
+        status
+        averageScore
+        startDate { year month day }
+        endDate { year month day }
+        coverImage { large }
+        format
+        synonyms
+        chapters
+        volumes
+        source
+        duration
+    """
+    if not include_details:
+        return base
+
+    return base + """
+        studios {
+            edges {
+                isMain
+                node { id name }
+            }
+        }
+        characters(perPage: 10, sort: ROLE) {
+            edges {
+                node {
+                    id
+                    name { full }
+                    image { large }
+                }
+                role
+                voiceActors(perPage: 10) {
+                    id
+                    name { full }
+                    languageV2
+                    image { large }
+                }
+            }
+        }
+        staff(perPage: 15) {
+            edges {
+                role
+                node {
+                    id
+                    name { full }
+                    image { large }
+                }
+            }
+        }
+        relations {
+            edges {
+                relationType
+                node {
+                    id
+                    type
+                    format
+                    title { romaji english native }
+                    coverImage { large }
+                }
+            }
+        }
+    """
+
+
 def search_anime(search, page=1, per_page=20, media_type="ANIME"):
     """Search AniList for anime or manga-based media."""
-    query = """
-    query ($search: String, $page: Int, $perPage: Int, $type: MediaType) {
-        Page(page: $page, perPage: $perPage) {
-            pageInfo {
+    if media_type not in {"ANIME", "MANGA"}:
+        raise ValueError("media_type must be ANIME or MANGA")
+
+    query = f"""
+    query ($search: String, $page: Int, $perPage: Int, $type: MediaType) {{
+        Page(page: $page, perPage: $perPage) {{
+            pageInfo {{
                 currentPage
                 lastPage
                 hasNextPage
-            }
-            media(search: $search, type: $type) {
-                id
-                type
-                title {
-                    romaji
-                    english
-                    native
-                }
-                description
-                episodes
-                status
-                averageScore
-                startDate { year month day }
-                endDate { year month day }
-                coverImage { large }
-                format
-                synonyms
-                chapters
-                volumes
-                source
-                duration
-            }
-        }
-    }
+            }}
+            media(search: $search, type: $type) {{
+                {_media_fields()}
+            }}
+        }}
+    }}
     """
-
-    if media_type not in {"ANIME", "MANGA"}:
-        raise ValueError("media_type must be ANIME or MANGA")
 
     data = anilist_request(
         query,
@@ -114,83 +163,19 @@ def search_anime(search, page=1, per_page=20, media_type="ANIME"):
 
 
 def get_media_details(media_id):
-    """Fetch the heavier data needed by a work detail page."""
-    query = """
-    query ($id: Int) {
-        Media(id: $id) {
-            id
-            type
-            title { romaji english native }
-            description
-            episodes
-            status
-            averageScore
-            startDate { year month day }
-            endDate { year month day }
-            coverImage { large }
-            format
-            synonyms
-            chapters
-            volumes
-            source
-            duration
-
-            studios {
-                edges {
-                    isMain
-                    node { id name }
-                }
-            }
-
-            characters(perPage: 50, sort: ROLE) {
-                edges {
-                    node {
-                        id
-                        name { full }
-                        image { large }
-                    }
-                    role
-                    voiceActors(perPage: 10) {
-                        id
-                        name { full }
-                        languageV2
-                        image { large }
-                    }
-                }
-            }
-
-            staff(perPage: 50) {
-                edges {
-                    role
-                    node {
-                        id
-                        name { full }
-                        image { large }
-                      }
-                }
-            }
-
-            relations {
-                edges {
-                    relationType
-                    node {
-                        id
-                        type
-                        format
-                        title { romaji english native }
-                        coverImage { large }
-                    }
-                }
-            }
-
-            airingSchedule(perPage: 50) {
-                nodes {
+    """Fetch the complete media record needed by detail/import workflows."""
+    query = f"""
+    query ($id: Int) {{
+        Media(id: $id) {{
+            {_media_fields()}
+            airingSchedule(perPage: 50) {{
+                nodes {{
                     airingAt
                     episode
-                }
-            }
-        }
-    }
+                }}
+            }}
+        }}
+    }}
     """
     data = anilist_request(query, {"id": media_id})
     return data["Media"]
