@@ -19,7 +19,7 @@ from ui.theme import COLORS, SPACING, refresh_theme
 
 
 class SettingsPage(QWidget):
-    settings_changed = Signal()
+    settings_changed = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -148,7 +148,7 @@ class SettingsPage(QWidget):
         if color.isValid():
             set_value(key, color.name())
             self._paint_color_button(button, color.name())
-            self._apply()
+            self._apply(key)
 
     def _combo_row(self, name, description, key, options):
         combo = QComboBox()
@@ -176,14 +176,14 @@ class SettingsPage(QWidget):
 
     def _changed(self, key, value):
         set_value(key, value)
-        self._apply()
+        self._apply(key)
 
-    def _apply(self):
+    def _apply(self, key=""):
         refresh_theme()
-        self.settings_changed.emit()
+        self.settings_changed.emit(key)
 
     def _reset(self):
         reset()
         for key, value in defaults().items():
             set_value(key, value)
-        self._apply()
+        self._apply("reset")
