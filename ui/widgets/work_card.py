@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt, Signal, QUrl
-from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QPen, QColor
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout
 
@@ -7,7 +7,7 @@ from ui.theme import COLORS
 
 
 class CoverFrame(QFrame):
-    """Poster surface that crops artwork to the exact frame and paints the ring above it."""
+    """Poster with artwork clipped to the rounded frame and an orange outline."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -21,39 +21,35 @@ class CoverFrame(QFrame):
 
     def paintEvent(self, event):
         del event
-        size = self.size()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
 
-        # The artwork is scaled by expansion, then center-cropped. Nothing is
-        # letterboxed and no part of the source can stick outside the frame.
+        rect = self.rect().adjusted(2, 2, -2, -2)
+        radius = 11
+        path = QPainterPath()
+        path.addRoundedRect(rect, radius, radius)
+
         if not self._pixmap.isNull():
             scaled = self._pixmap.scaled(
-                size,
+                rect.size(),
                 Qt.KeepAspectRatioByExpanding,
                 Qt.SmoothTransformation,
             )
-            x = max(0, (scaled.width() - size.width()) // 2)
-            y = max(0, (scaled.height() - size.height()) // 2)
-            cropped = scaled.copy(x, y, size.width(), size.height())
+            x = max(0, (scaled.width() - rect.width()) // 2)
+            y = max(0, (scaled.height() - rect.height()) // 2)
+            cropped = scaled.copy(x, y, rect.width(), rect.height())
 
-            artwork_path = QPainterPath()
-            artwork_path.addRoundedRect(1, 1, size.width() - 2, size.height() - 2, 11, 11)
             painter.save()
-            painter.setClipPath(artwork_path)
-            painter.drawPixmap(0, 0, cropped)
+            painter.setClipPath(path)
+            painter.drawPixmap(rect.topLeft(), cropped)
             painter.restore()
-        else:
-            painter.fillRect(self.rect(), Qt.transparent)
 
-        # Paint the orange ring LAST so it always sits cleanly above the cover.
-        ring = QPainterPath()
-        ring.addRoundedRect(1, 1, size.width() - 2, size.height() - 2, 11, 11)
-        pen = QPen(COLORS["accent"], 2)
+        # Explicit QColor is required by PySide6 for QPen(color, width).
+        pen = QPen(QColor(COLORS["accent"]), 3.0)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        painter.drawPath(ring)
+        painter.drawPath(path)
         painter.end()
 
 
@@ -85,8 +81,6 @@ class WorkCard(QFrame):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
 
-        # One surface only: the artwork fills the entire poster and the orange
-        # ring is painted over it. There is deliberately no inner padding/gap.
         self.cover = CoverFrame()
         root.addWidget(self.cover)
         self._load_cover()
