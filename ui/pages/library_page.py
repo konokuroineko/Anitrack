@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from database import get_all_library
@@ -15,10 +15,8 @@ class LibraryPage(QWidget):
         self.anime_list = []
         self.current_filter = "All"
         self.current_sort = "Recently Added"
-        self._resize_timer = QTimer(self)
-        self._resize_timer.setSingleShot(True)
-        self._resize_timer.setInterval(120)
-        self._resize_timer.timeout.connect(self._reflow_grid)
+        self._cards = []
+        self._empty_label = None
         self._build_shell()
         self.refresh()
 
@@ -89,11 +87,11 @@ class LibraryPage(QWidget):
     def _sort_changed(self, value):
         self.current_sort = value; self._apply_sort(); self._populate()
 
-    def _clear_grid(self):
+    def _clear_grid(self, delete_widgets=True):
         while self.grid_layout.count():
             item = self.grid_layout.takeAt(0)
             widget = item.widget()
-            if widget is not None:
+            if widget is not None and delete_widgets:
                 widget.deleteLater()
 
     def _column_count(self):
@@ -104,22 +102,36 @@ class LibraryPage(QWidget):
 
     def _populate(self):
         self._clear_grid()
+        self._cards = []
+        self._empty_label = None
         self.count_label.setText(f"{len(self.anime_list)} title{'s' if len(self.anime_list) != 1 else ''}")
         if not self.anime_list:
             empty = QLabel("Nothing here yet\n\nAdd titles from Search to build your collection.")
             empty.setAlignment(Qt.AlignCenter); empty.setStyleSheet(f"color:{COLORS['muted']};font-size:15px;padding:100px;")
-            self.grid_layout.addWidget(empty, 0, 0, 1, 4); return
+            self.grid_layout.addWidget(empty, 0, 0, 1, 4)
+            self._empty_label = empty
+            return
 
-        columns = self._column_count()
-        for i, anime in enumerate(self.anime_list):
+        for anime in self.anime_list:
             card = WorkCard(anime, mode="library")
             card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             card.clicked.connect(self.work_selected)
-            self.grid_layout.addWidget(card, i // columns, i % columns, Qt.AlignTop | Qt.AlignLeft)
+            self._cards.append(card)
+
+        self._reflow_grid()
 
     def _reflow_grid(self):
-        self._populate()
+        if not self._cards:
+            return
+
+        # Move the existing card widgets instead of destroying/recreating them.
+        # This makes resize reflow immediate and prevents text/images from briefly
+        # occupying stale rows while the window is changing size.
+        self._clear_grid(delete_widgets=False)
+        columns = self._column_count()
+        for i, card in enumerate(self._cards):
+            self.grid_layout.addWidget(card, i // columns, i % columns, Qt.AlignTop | Qt.AlignLeft)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._resize_timer.start()
+        self._reflow_grid()
