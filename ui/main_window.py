@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         initialize_database()
-        self.setWindowTitle("AniTrack")
+        self.setWindowTitle("NekoTrack")
         self.resize(1380, 860)
         self.image_threads = []
         self.navigation_buttons = {}
@@ -71,9 +71,9 @@ class MainWindow(QMainWindow):
         side.setSpacing(5)
 
         brand = QHBoxLayout()
-        mark = QLabel("A")
+        mark = QLabel("N")
         mark.setObjectName("brandMark")
-        word = QLabel("AniTrack")
+        word = QLabel("NekoTrack")
         word.setObjectName("brandWord")
         brand.addWidget(mark)
         brand.addWidget(word)
