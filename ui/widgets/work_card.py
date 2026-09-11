@@ -65,18 +65,19 @@ class WorkCard(QFrame):
         self._cover_reply = None
         self.setObjectName("posterCard")
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedWidth(210)
+        # The card is wider than the poster so the hover frame surrounds it
+        # instead of drawing a border over the poster edges.
+        self.setFixedWidth(218)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.setStyleSheet(f"""
             QFrame#posterCard {{
                 background: transparent;
-                border: 1px solid transparent;
+                border: 2px solid transparent;
                 border-radius: 13px;
-                padding: 6px;
             }}
             QFrame#posterCard:hover {{
-                background: {COLORS['surface']};
-                border-color: {COLORS['border_hover']};
+                background: {COLORS['surface_hover']};
+                border-color: {COLORS['accent']};
             }}
             QLabel {{ background: transparent; border: none; }}
             QLabel#title {{ color: {COLORS['primary']}; font-size: 13px; font-weight: 760; }}
@@ -87,10 +88,10 @@ class WorkCard(QFrame):
         """)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(2, 2, 2, 2)
         root.setSpacing(8)
         self.cover = CoverFrame()
-        root.addWidget(self.cover)
+        root.addWidget(self.cover, 0, Qt.AlignHCenter)
         self._load_cover()
 
         title = QLabel(self._title())
