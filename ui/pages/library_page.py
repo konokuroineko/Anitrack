@@ -52,7 +52,10 @@ class LibraryPage(QWidget):
         self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True); self.scroll_area.setFrameShape(QFrame.NoFrame); self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         container = QWidget(); self.grid_layout = QGridLayout(container)
-        self.grid_layout.setContentsMargins(4, 10, 4, 20); self.grid_layout.setHorizontalSpacing(24); self.grid_layout.setVerticalSpacing(30)
+        self.grid_layout.setContentsMargins(4, 10, 4, 20)
+        self.grid_layout.setHorizontalSpacing(24)
+        self.grid_layout.setVerticalSpacing(30)
+        self.grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.scroll_area.setWidget(container); root.addWidget(self.scroll_area, 1)
         self._set_filter("All")
 
@@ -91,12 +94,20 @@ class LibraryPage(QWidget):
             empty = QLabel("Nothing here yet\n\nAdd titles from Search to build your collection.")
             empty.setAlignment(Qt.AlignCenter); empty.setStyleSheet(f"color:{COLORS['muted']};font-size:15px;padding:100px;")
             self.grid_layout.addWidget(empty, 0, 0, 1, 4); return
-        columns = max(1, self.scroll_area.viewport().width() // 230)
+
+        # Use the real card footprint (cover + gap) so fullscreen widths never
+        # create an extra column that spills into the next row.
+        card_width = 210
+        column_gap = 24
+        available_width = max(0, self.scroll_area.viewport().width() - 8)
+        columns = max(1, (available_width + column_gap) // (card_width + column_gap))
+
         for i, anime in enumerate(self.anime_list):
             card = WorkCard(anime, mode="library")
+            card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             card.clicked.connect(self.work_selected)
-            self.grid_layout.addWidget(card, i // columns, i % columns)
-        for col in range(columns): self.grid_layout.setColumnStretch(col, 1)
+            self.grid_layout.addWidget(card, i // columns, i % columns, Qt.AlignTop | Qt.AlignLeft)
 
     def resizeEvent(self, event):
-        super().resizeEvent(event); self._populate()
+        super().resizeEvent(event)
+        self._populate()
