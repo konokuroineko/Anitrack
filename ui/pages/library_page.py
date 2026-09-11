@@ -7,7 +7,7 @@ from ui.widgets.work_card import WorkCard
 
 
 class FlowLayout(QLayout):
-    """Fixed-width flowing layout with positions that can be calculated without applying them."""
+    """Fixed-width flowing layout that lets positions be calculated without applying them."""
 
     def __init__(self, parent=None, margin=0, h_spacing=24, v_spacing=30):
         super().__init__(parent)
@@ -78,12 +78,14 @@ class LibraryPage(QWidget):
         self.current_sort = "Recently Added"
         self._cards = []
         self._empty_label = None
+        # This timer is only for releasing the layout after the user stops resizing.
+        # It does NOT delay the animation itself.
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
         self._resize_timer.setInterval(140)
-        self._resize_timer.timeout.connect(self._animate_reflow)
-        self._resize_snapshot = None
+        self._resize_timer.timeout.connect(self._finish_resize)
         self._resize_layout_was_enabled = True
+        self._last_target_positions = None
         self._animations = []
         self._animation_finish_timer = None
         self._build_shell()
@@ -121,11 +123,25 @@ class LibraryPage(QWidget):
 
     def eventFilter(self, watched, event):
         if watched is self.container and event.type() == QEvent.Resize and self._cards:
-            if self._resize_snapshot is None:
-                self._resize_snapshot = {id(card): QPoint(card.pos()) for card in self._cards}
-                self._resize_layout_was_enabled = self.flow_layout.isEnabled()
+            # Freeze Qt's layout before it can move the cards. Then calculate the
+            # new arrangement ourselves. Since cards have fixed width, the target
+            # positions only change when the number of columns changes.
+            if self.flow_layout.isEnabled():
+                self._resize_layout_was_enabled = True
                 self.flow_layout.setEnabled(False)
             self._resize_timer.start()
+
+            target_rects = self.flow_layout.positions_for_rect(self.container.rect())
+            target_positions = {
+                id(item.widget()): geometry.topLeft()
+                for item, geometry in target_rects.items()
+                if item.widget() is not None
+            }
+
+            if target_positions != self._last_target_positions:
+                current_positions = {id(card): QPoint(card.pos()) for card in self._cards}
+                self._last_target_positions = target_positions
+                self._animate_to_positions(current_positions, target_positions)
         return super().eventFilter(watched, event)
 
     def refresh(self):
@@ -169,37 +185,35 @@ class LibraryPage(QWidget):
         for anime in self.anime_list:
             card = WorkCard(anime, mode="library"); card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed); card.clicked.connect(self.work_selected)
             self._cards.append(card); self.flow_layout.addWidget(card)
+        self.flow_layout.invalidate(); self.flow_layout.activate()
+        self._last_target_positions = {id(card): QPoint(card.pos()) for card in self._cards}
 
-    def _animate_reflow(self):
-        snapshot = self._resize_snapshot; self._resize_snapshot = None
-        if not snapshot or not self._cards:
-            self.flow_layout.setEnabled(self._resize_layout_was_enabled); return
+    def _animate_to_positions(self, start_positions, target_positions):
         self._stop_animations()
-        target_rects = self.flow_layout.positions_for_rect(self.container.rect())
-        target_positions = {id(item.widget()): geometry.topLeft() for item, geometry in target_rects.items() if item.widget() is not None}
         animations = []
         for card in self._cards:
-            old_pos = snapshot.get(id(card)); new_pos = target_positions.get(id(card))
-            if old_pos is None or new_pos is None:
+            old_pos = start_positions.get(id(card), QPoint(card.pos()))
+            new_pos = target_positions.get(id(card))
+            if new_pos is None:
                 continue
             card.move(old_pos)
-            if old_pos != new_pos:
-                animation = QPropertyAnimation(card, b"pos", self); animation.setDuration(300)
-                animation.setStartValue(old_pos); animation.setEndValue(new_pos); animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-                animations.append(animation); animation.start()
-            else:
+            if old_pos == new_pos:
                 card.move(new_pos)
+                continue
+            animation = QPropertyAnimation(card, b"pos", self)
+            animation.setDuration(260)
+            animation.setStartValue(old_pos)
+            animation.setEndValue(new_pos)
+            animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+            animations.append(animation)
+            animation.start()
         self._animations = animations
-        if not animations:
-            self._finish_reflow(); return
-        self._animation_finish_timer = QTimer(self); self._animation_finish_timer.setSingleShot(True); self._animation_finish_timer.setInterval(320)
-        self._animation_finish_timer.timeout.connect(self._finish_reflow); self._animation_finish_timer.start()
 
-    def _finish_reflow(self):
-        if self._animation_finish_timer is not None:
-            self._animation_finish_timer.stop(); self._animation_finish_timer.deleteLater(); self._animation_finish_timer = None
-        self._animations = []
-        self.flow_layout.setEnabled(self._resize_layout_was_enabled); self.flow_layout.invalidate(); self.flow_layout.activate()
+    def _finish_resize(self):
+        self._stop_animations()
+        self.flow_layout.setEnabled(self._resize_layout_was_enabled)
+        self.flow_layout.invalidate(); self.flow_layout.activate()
+        self._last_target_positions = {id(card): QPoint(card.pos()) for card in self._cards}
 
     def _stop_animations(self):
         for animation in self._animations:
@@ -209,5 +223,5 @@ class LibraryPage(QWidget):
             self._animation_finish_timer.stop(); self._animation_finish_timer.deleteLater(); self._animation_finish_timer = None
 
     def _cancel_resize_animation(self):
-        self._resize_timer.stop(); self._stop_animations(); self._resize_snapshot = None
+        self._resize_timer.stop(); self._stop_animations(); self._last_target_positions = None
         self.flow_layout.setEnabled(True); self.flow_layout.invalidate(); self.flow_layout.activate()
