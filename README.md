@@ -1,12 +1,12 @@
-# AniTrack
+# NekoTrack
 
 A personal anime and media tracker built with Python, PySide6, SQLite, and the AniList GraphQL API.
 
-AniTrack is designed to keep your library, progress, metadata, relationships, characters, staff, and locally cached artwork in one desktop application.
+NekoTrack is designed to keep your library, progress, metadata, relationships, characters, staff, and locally cached artwork in one desktop application.
 
 > **Status: Beta — v0.1.0-beta.1**
 >
-> AniTrack is usable, but it is still under active development. Expect unfinished features, UI changes, and occasional bugs while the beta is being developed.
+> NekoTrack is usable, but it is still under active development. Expect unfinished features, UI changes, and occasional bugs while the beta is being developed.
 
 ## Features
 
@@ -94,20 +94,20 @@ python main.py
 
 ## Data and privacy
 
-AniTrack stores its local SQLite database as `anime_tracker.db`. Cover images are cached under `data/images/`. These generated/local files are intentionally ignored by Git.
+NekoTrack stores its local SQLite database as `anime_tracker.db`. Cover images are cached under `data/images/`. These generated/local files are intentionally ignored by Git.
 
-AniTrack does not currently require an AniList API token for its public GraphQL requests.
+NekoTrack does not currently require an AniList API token for its public GraphQL requests.
 
 ## AniList
 
-AniTrack uses the AniList GraphQL API for media metadata. AniList data, artwork, and trademarks remain subject to their respective terms and rights. This repository's MIT license applies to AniTrack's own source code; it does not grant ownership of third-party AniList content.
+NekoTrack uses the AniList GraphQL API for media metadata. AniList data, artwork, and trademarks remain subject to their respective terms and rights. This repository's MIT license applies to NekoTrack's own source code; it does not grant ownership of third-party AniList content.
 
 See the AniList API documentation for current API and usage terms: https://anilist.gitbook.io/anilist-apiv2-docs/
 
 ## License
 
-AniTrack's source code is released under the MIT License. See [LICENSE](LICENSE).
+NekoTrack's source code is released under the MIT License. See [LICENSE](LICENSE).
 
 ## AI-assisted development
 
-AniTrack has been developed with assistance from AI coding tools, including GitHub Copilot and OpenAI ChatGPT. The project is still maintained and reviewed by its author.
+NekoTrack has been developed with assistance from AI coding tools, including GitHub Copilot and OpenAI ChatGPT. The project is still maintained and reviewed by its author.
