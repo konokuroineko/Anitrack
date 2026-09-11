@@ -1,8 +1,9 @@
 from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QPen, QColor
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QSizePolicy
 
+from database import save_cover_path
 from ui.theme import COLORS
 
 
@@ -32,22 +33,17 @@ class CoverFrame(QFrame):
 
         if not self._pixmap.isNull():
             scaled = self._pixmap.scaled(
-                rect.size(),
-                Qt.KeepAspectRatioByExpanding,
-                Qt.SmoothTransformation,
+                rect.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
             )
             x = max(0, (scaled.width() - rect.width()) // 2)
             y = max(0, (scaled.height() - rect.height()) // 2)
             cropped = scaled.copy(x, y, rect.width(), rect.height())
-
             painter.save()
             painter.setClipPath(path)
             painter.drawPixmap(rect.topLeft(), cropped)
             painter.restore()
 
-        # Explicit QColor is required by PySide6 for QPen(color, width).
-        pen = QPen(QColor(COLORS["accent"]), 3.0)
-        painter.setPen(pen)
+        painter.setPen(QPen(QColor(COLORS["accent"]), 3.0))
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)
         painter.end()
@@ -57,6 +53,11 @@ class WorkCard(QFrame):
     clicked = Signal(object)
     progress_changed = Signal(int)
     add_requested = Signal(object)
+
+    # Covers fetched from AniList are kept in memory so rebuilding the grid during
+    # resize/fullscreen does not start a new request or flash the artwork.
+    _cover_cache = {}
+    _cover_failures = set()
 
     def __init__(self, work, progress_editable=False, mode="library", add_callback=None, parent=None):
         super().__init__(parent)
@@ -68,6 +69,7 @@ class WorkCard(QFrame):
         self.setObjectName("posterCard")
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedWidth(210)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.setStyleSheet(f"""
             QFrame#posterCard {{ background: transparent; border: none; }}
             QLabel {{ background: transparent; border: none; }}
@@ -121,18 +123,39 @@ class WorkCard(QFrame):
             if not pixmap.isNull():
                 self.cover.set_pixmap(pixmap)
                 return
-        cover_url = self._value("cover_url") or (self._value("coverImage") or {}).get("large")
-        if cover_url:
-            self._cover_reply = self._network_manager.get(QNetworkRequest(QUrl(str(cover_url))))
-            self._cover_reply.finished.connect(self._cover_finished)
 
-    def _cover_finished(self):
+        cover_url = self._value("cover_url") or (self._value("coverImage") or {}).get("large")
+        if not cover_url:
+            return
+        cover_url = str(cover_url)
+
+        cached = self._cover_cache.get(cover_url)
+        if cached is not None and not cached.isNull():
+            self.cover.set_pixmap(cached)
+            return
+        if cover_url in self._cover_failures:
+            return
+
+        self._cover_reply = self._network_manager.get(QNetworkRequest(QUrl(cover_url)))
+        self._cover_reply.finished.connect(lambda: self._cover_finished(cover_url))
+
+    def _cover_finished(self, cover_url):
         reply = self._cover_reply
         self._cover_reply = None
         if reply is not None and reply.error() == reply.NetworkError.NoError:
             pixmap = QPixmap()
             if pixmap.loadFromData(reply.readAll()):
+                self._cover_cache[cover_url] = pixmap
                 self.cover.set_pixmap(pixmap)
+                work_id = self._value("id")
+                if work_id:
+                    try:
+                        save_cover_path(work_id, None)
+                    except Exception:
+                        # The in-memory cache still prevents repeated downloads.
+                        pass
+        else:
+            self._cover_failures.add(cover_url)
         if reply is not None:
             reply.deleteLater()
 
