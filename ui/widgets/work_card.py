@@ -6,6 +6,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QSizePolicy
 
 from database import save_cover_path
+from ui.preferences import get
 from ui.theme import COLORS
 
 
@@ -13,12 +14,13 @@ IMAGE_DIRECTORY = Path("data") / "images" / "works"
 
 
 class CoverFrame(QFrame):
-    """Poster with artwork clipped to the rounded frame and an orange outline."""
+    """Poster with artwork clipped to the rounded frame and an accent outline."""
 
-    def __init__(self, parent=None):
+    def __init__(self, width=None, parent=None):
         super().__init__(parent)
         self._pixmap = QPixmap()
-        self.setFixedSize(210, 284)
+        self._width = width or get("card_size")
+        self.setFixedSize(self._width, round(self._width * 284 / 210))
         self.setAttribute(Qt.WA_TranslucentBackground)
 
     def set_pixmap(self, pixmap):
@@ -31,8 +33,9 @@ class CoverFrame(QFrame):
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
         rect = self.rect().adjusted(2, 2, -2, -2)
+        radius = get("corner_radius")
         path = QPainterPath()
-        path.addRoundedRect(rect, 11, 11)
+        path.addRoundedRect(rect, radius, radius)
         if not self._pixmap.isNull():
             scaled = self._pixmap.scaled(rect.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
             x = max(0, (scaled.width() - rect.width()) // 2)
@@ -65,22 +68,20 @@ class WorkCard(QFrame):
         self._cover_reply = None
         self.setObjectName("posterCard")
         self.setCursor(Qt.PointingHandCursor)
-        # The card is wider than the poster so the hover frame surrounds it
-        # instead of drawing a border over the poster edges.
-        self.setFixedWidth(218)
+
+        card_width = get("card_size") + 8
+        self.setFixedWidth(card_width)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        hover_css = f"background: {COLORS['surface_hover']}; border-color: {COLORS['accent']};" if get("hover_highlight") else ""
         self.setStyleSheet(f"""
             QFrame#posterCard {{
                 background: transparent;
                 border: 2px solid transparent;
-                border-radius: 13px;
+                border-radius: {get('corner_radius') + 2}px;
             }}
-            QFrame#posterCard:hover {{
-                background: {COLORS['surface_hover']};
-                border-color: {COLORS['accent']};
-            }}
+            QFrame#posterCard:hover {{ {hover_css} }}
             QLabel {{ background: transparent; border: none; }}
-            QLabel#title {{ color: {COLORS['primary']}; font-size: 13px; font-weight: 760; }}
+            QLabel#title {{ color: {COLORS['primary']}; font-size: {get('font_size')}px; font-weight: 760; }}
             QFrame#posterCard:hover QLabel#title {{ color: {COLORS['accent_hover']}; }}
             QLabel#meta {{ color: {COLORS['muted']}; font-size: 11px; }}
             QPushButton#add {{ background: {COLORS['accent']}; color: #111318; border: none; border-radius: 8px; padding: 7px; font-weight: 800; }}
@@ -90,14 +91,14 @@ class WorkCard(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(2, 2, 2, 2)
         root.setSpacing(8)
-        self.cover = CoverFrame()
+        self.cover = CoverFrame(get("card_size"))
         root.addWidget(self.cover, 0, Qt.AlignHCenter)
         self._load_cover()
 
         title = QLabel(self._title())
         title.setObjectName("title")
         title.setWordWrap(True)
-        title.setMaximumHeight(38)
+        title.setMaximumHeight(42)
         title.setToolTip(title.text())
         root.addWidget(title)
 
@@ -130,67 +131,49 @@ class WorkCard(QFrame):
             if not pixmap.isNull():
                 self.cover.set_pixmap(pixmap)
                 return
-
         cover_url = self._value("cover_url") or (self._value("coverImage") or {}).get("large")
         if not cover_url:
             return
         cover_url = str(cover_url)
-
         cached = self._cover_cache.get(cover_url)
         if cached is not None and not cached.isNull():
-            self.cover.set_pixmap(cached)
-            return
-        if cover_url in self._cover_failures:
-            return
-
+            self.cover.set_pixmap(cached); return
+        if cover_url in self._cover_failures: return
         self._cover_reply = self._network_manager.get(QNetworkRequest(QUrl(cover_url)))
         self._cover_reply.finished.connect(lambda: self._cover_finished(cover_url))
 
     def _cover_finished(self, cover_url):
-        reply = self._cover_reply
-        self._cover_reply = None
+        reply = self._cover_reply; self._cover_reply = None
         if reply is not None and reply.error() == reply.NetworkError.NoError:
             pixmap = QPixmap()
             if pixmap.loadFromData(reply.readAll()):
-                self._cover_cache[cover_url] = pixmap
-                self.cover.set_pixmap(pixmap)
+                self._cover_cache[cover_url] = pixmap; self.cover.set_pixmap(pixmap)
                 work_id = self._value("id")
                 if work_id:
                     try:
                         IMAGE_DIRECTORY.mkdir(parents=True, exist_ok=True)
                         path = IMAGE_DIRECTORY / f"{work_id}.jpg"
-                        if pixmap.save(str(path), "JPG", 85):
-                            save_cover_path(work_id, str(path))
-                    except Exception:
-                        pass
-            else:
-                self._cover_failures.add(cover_url)
-        else:
-            self._cover_failures.add(cover_url)
-        if reply is not None:
-            reply.deleteLater()
+                        if pixmap.save(str(path), "JPG", 85): save_cover_path(work_id, str(path))
+                    except Exception: pass
+            else: self._cover_failures.add(cover_url)
+        else: self._cover_failures.add(cover_url)
+        if reply is not None: reply.deleteLater()
 
     def _add_clicked(self):
         self.add_requested.emit(self.work)
-        if self.add_callback:
-            self.add_callback(self.work, self.sender())
+        if self.add_callback: self.add_callback(self.work, self.sender())
 
     def _value(self, key):
-        if hasattr(self.work, "get"):
-            return self.work.get(key)
-        try:
-            return self.work[key]
-        except (KeyError, TypeError, IndexError):
-            return None
+        if hasattr(self.work, "get"): return self.work.get(key)
+        try: return self.work[key]
+        except (KeyError, TypeError, IndexError): return None
 
     def _title(self):
         title = self._value("title")
-        if isinstance(title, dict):
-            return title.get("english") or title.get("romaji") or title.get("native") or "Untitled"
+        if isinstance(title, dict): return title.get("english") or title.get("romaji") or title.get("native") or "Untitled"
         return title or "Untitled"
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.clicked.emit(self.work)
-            return
+            self.clicked.emit(self.work); return
         super().mousePressEvent(event)
