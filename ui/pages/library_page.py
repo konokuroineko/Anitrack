@@ -7,7 +7,7 @@ from ui.widgets.work_card import WorkCard
 
 
 class FlowLayout(QLayout):
-    """Fixed-width flowing layout that lets Qt handle resize geometry naturally."""
+    """Fixed-width flowing layout with positions that can be calculated without applying them."""
 
     def __init__(self, parent=None, margin=0, h_spacing=24, v_spacing=30):
         super().__init__(parent)
@@ -16,72 +16,55 @@ class FlowLayout(QLayout):
         self._v_spacing = v_spacing
         self.setContentsMargins(margin, margin, margin, margin)
 
-    def addItem(self, item):
-        self._items.append(item)
-
-    def count(self):
-        return len(self._items)
-
-    def itemAt(self, index):
-        if 0 <= index < len(self._items):
-            return self._items[index]
-        return None
-
-    def takeAt(self, index):
-        if 0 <= index < len(self._items):
-            return self._items.pop(index)
-        return None
-
-    def expandingDirections(self):
-        return Qt.Orientations(Qt.Orientation(0))
-
-    def hasHeightForWidth(self):
-        return True
-
-    def heightForWidth(self, width):
-        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+    def addItem(self, item): self._items.append(item)
+    def count(self): return len(self._items)
+    def itemAt(self, index): return self._items[index] if 0 <= index < len(self._items) else None
+    def takeAt(self, index): return self._items.pop(index) if 0 <= index < len(self._items) else None
+    def expandingDirections(self): return Qt.Orientations(Qt.Orientation(0))
+    def hasHeightForWidth(self): return True
+    def heightForWidth(self, width): return self._do_layout(QRect(0, 0, width, 0), True)
 
     def setGeometry(self, rect):
         super().setGeometry(rect)
-        self._do_layout(rect, test_only=False)
+        self._do_layout(rect, False)
 
-    def sizeHint(self):
-        return self.minimumSize()
+    def sizeHint(self): return self.minimumSize()
 
     def minimumSize(self):
         size = QSize()
         margins = self.contentsMargins()
         for item in self._items:
             size = size.expandedTo(item.minimumSize())
-        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
-        return size
+        return size + QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
 
-    def _do_layout(self, rect, test_only):
+    def positions_for_rect(self, rect):
         margins = self.contentsMargins()
         effective = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
-        x = effective.x()
-        y = effective.y()
-        line_height = 0
-
+        x, y, line_height = effective.x(), effective.y(), 0
+        positions = {}
         for item in self._items:
             widget_size = item.sizeHint()
             if widget_size.width() <= 0:
                 continue
-
             next_x = x + widget_size.width()
             if x > effective.x() and next_x > effective.right() + 1:
                 x = effective.x()
                 y += line_height + self._v_spacing
                 next_x = x + widget_size.width()
                 line_height = 0
-
-            if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), widget_size))
-
+            positions[item] = QRect(QPoint(x, y), widget_size)
             x = next_x + self._h_spacing
             line_height = max(line_height, widget_size.height())
+        return positions
 
-        return y + line_height - rect.y() + margins.bottom()
+    def _do_layout(self, rect, test_only):
+        positions = self.positions_for_rect(rect)
+        if not test_only:
+            for item, geometry in positions.items():
+                item.setGeometry(geometry)
+        if not positions:
+            return self.contentsMargins().bottom()
+        return max(g.bottom() for g in positions.values()) - rect.y() + self.contentsMargins().bottom()
 
 
 class LibraryPage(QWidget):
@@ -97,30 +80,26 @@ class LibraryPage(QWidget):
         self._empty_label = None
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
-        self._resize_timer.setInterval(120)
+        self._resize_timer.setInterval(140)
         self._resize_timer.timeout.connect(self._animate_reflow)
         self._resize_snapshot = None
+        self._resize_layout_was_enabled = True
         self._animations = []
+        self._animation_finish_timer = None
         self._build_shell()
         self.refresh()
 
     def _build_shell(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(38, 32, 38, 30)
-        root.setSpacing(18)
-
+        root.setContentsMargins(38, 32, 38, 30); root.setSpacing(18)
         header = QHBoxLayout()
         title_box = QVBoxLayout(); title_box.setSpacing(2)
-        title = QLabel("Library")
-        title.setStyleSheet(f"font-size:32px;font-weight:850;color:{COLORS['primary']};")
-        self.count_label = QLabel("0 titles")
-        self.count_label.setStyleSheet(f"font-size:12px;color:{COLORS['muted']};")
+        title = QLabel("Library"); title.setStyleSheet(f"font-size:32px;font-weight:850;color:{COLORS['primary']};")
+        self.count_label = QLabel("0 titles"); self.count_label.setStyleSheet(f"font-size:12px;color:{COLORS['muted']};")
         title_box.addWidget(title); title_box.addWidget(self.count_label)
-        header.addLayout(title_box); header.addStretch()
-        root.addLayout(header)
+        header.addLayout(title_box); header.addStretch(); root.addLayout(header)
 
-        controls = QFrame()
-        controls.setStyleSheet(f"QFrame{{background:{COLORS['surface']};border:1px solid {COLORS['border']};border-radius:14px;}}")
+        controls = QFrame(); controls.setStyleSheet(f"QFrame{{background:{COLORS['surface']};border:1px solid {COLORS['border']};border-radius:14px;}}")
         row = QHBoxLayout(controls); row.setContentsMargins(9, 8, 9, 8); row.setSpacing(6)
         self.filter_buttons = {}
         for name in ["All", "Watching", "Completed", "Planned"]:
@@ -132,41 +111,31 @@ class LibraryPage(QWidget):
         label = QLabel("SORT"); label.setStyleSheet(f"font-size:10px;font-weight:800;color:{COLORS['muted']};letter-spacing:1px;")
         row.addWidget(label)
         self.sort_box = QComboBox(); self.sort_box.addItems(["Recently Added", "Title", "Release Year"]); self.sort_box.setMinimumWidth(150)
-        self.sort_box.currentTextChanged.connect(self._sort_changed); row.addWidget(self.sort_box); row.addStretch()
-        root.addWidget(controls)
+        self.sort_box.currentTextChanged.connect(self._sort_changed); row.addWidget(self.sort_box); row.addStretch(); root.addWidget(controls)
 
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameShape(QFrame.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        self.container = QWidget()
-        self.container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.container.installEventFilter(self)
+        self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True); self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.container = QWidget(); self.container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum); self.container.installEventFilter(self)
         self.flow_layout = FlowLayout(self.container, h_spacing=24, v_spacing=30)
-        self.scroll_area.setWidget(self.container)
-        root.addWidget(self.scroll_area, 1)
-        self._set_filter("All")
+        self.scroll_area.setWidget(self.container); root.addWidget(self.scroll_area, 1); self._set_filter("All")
 
     def eventFilter(self, watched, event):
         if watched is self.container and event.type() == QEvent.Resize and self._cards:
             if self._resize_snapshot is None:
                 self._resize_snapshot = {id(card): QPoint(card.pos()) for card in self._cards}
+                self._resize_layout_was_enabled = self.flow_layout.isEnabled()
+                self.flow_layout.setEnabled(False)
             self._resize_timer.start()
         return super().eventFilter(watched, event)
 
     def refresh(self):
-        self._stop_animations()
-        self._resize_snapshot = None
-        self.all_anime = list(get_all_library()); self._apply_filter(); self._apply_sort(); self._populate()
+        self._cancel_resize_animation(); self.all_anime = list(get_all_library()); self._apply_filter(); self._apply_sort(); self._populate()
 
     def _set_filter(self, value):
         self.current_filter = value
         for name, button in self.filter_buttons.items():
             button.setChecked(name == value); button.setStyleSheet(self._filter_style(name == value))
-        self._stop_animations(); self._resize_snapshot = None
-        self._apply_filter(); self._apply_sort(); self._populate()
+        self._cancel_resize_animation(); self._apply_filter(); self._apply_sort(); self._populate()
 
     def _filter_style(self, active):
         if active:
@@ -183,73 +152,62 @@ class LibraryPage(QWidget):
         else: self.anime_list.sort(key=lambda x:x["id"], reverse=True)
 
     def _sort_changed(self, value):
-        self.current_sort = value; self._stop_animations(); self._resize_snapshot = None; self._populate()
+        self.current_sort = value; self._cancel_resize_animation(); self._populate()
 
     def _clear_cards(self):
-        self._stop_animations()
-        self._resize_snapshot = None
+        self._cancel_resize_animation()
         while self.flow_layout.count():
-            item = self.flow_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-        self._cards = []
-        self._empty_label = None
+            item = self.flow_layout.takeAt(0); widget = item.widget()
+            if widget is not None: widget.deleteLater()
+        self._cards = []; self._empty_label = None
 
     def _populate(self):
-        self._clear_cards()
-        self.count_label.setText(f"{len(self.anime_list)} title{'s' if len(self.anime_list) != 1 else ''}")
+        self._clear_cards(); self.count_label.setText(f"{len(self.anime_list)} title{'s' if len(self.anime_list) != 1 else ''}")
         if not self.anime_list:
-            empty = QLabel("Nothing here yet\n\nAdd titles from Search to build your collection.")
-            empty.setAlignment(Qt.AlignCenter)
-            empty.setStyleSheet(f"color:{COLORS['muted']};font-size:15px;padding:100px;")
-            self.flow_layout.addWidget(empty)
-            self._empty_label = empty
-            return
-
+            empty = QLabel("Nothing here yet\n\nAdd titles from Search to build your collection."); empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(f"color:{COLORS['muted']};font-size:15px;padding:100px;"); self.flow_layout.addWidget(empty); self._empty_label = empty; return
         for anime in self.anime_list:
-            card = WorkCard(anime, mode="library")
-            card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            card.clicked.connect(self.work_selected)
-            self._cards.append(card)
-            self.flow_layout.addWidget(card)
+            card = WorkCard(anime, mode="library"); card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed); card.clicked.connect(self.work_selected)
+            self._cards.append(card); self.flow_layout.addWidget(card)
 
     def _animate_reflow(self):
-        snapshot = self._resize_snapshot
-        self._resize_snapshot = None
+        snapshot = self._resize_snapshot; self._resize_snapshot = None
         if not snapshot or not self._cards:
-            return
-
+            self.flow_layout.setEnabled(self._resize_layout_was_enabled); return
         self._stop_animations()
+        target_rects = self.flow_layout.positions_for_rect(self.container.rect())
+        target_positions = {id(item.widget()): geometry.topLeft() for item, geometry in target_rects.items() if item.widget() is not None}
         animations = []
         for card in self._cards:
-            old_pos = snapshot.get(id(card))
-            if old_pos is None:
+            old_pos = snapshot.get(id(card)); new_pos = target_positions.get(id(card))
+            if old_pos is None or new_pos is None:
                 continue
-            new_pos = card.pos()
-            if old_pos == new_pos:
-                continue
-
-            # Put the card back at its pre-resize position, then let it glide
-            # to the position produced by the final FlowLayout geometry.
             card.move(old_pos)
-            animation = QPropertyAnimation(card, b"pos", self)
-            animation.setDuration(260)
-            animation.setStartValue(old_pos)
-            animation.setEndValue(new_pos)
-            animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-            animations.append(animation)
-            animation.finished.connect(lambda a=animation: self._animation_finished(a))
-            animation.start()
-
+            if old_pos != new_pos:
+                animation = QPropertyAnimation(card, b"pos", self); animation.setDuration(300)
+                animation.setStartValue(old_pos); animation.setEndValue(new_pos); animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+                animations.append(animation); animation.start()
+            else:
+                card.move(new_pos)
         self._animations = animations
+        if not animations:
+            self._finish_reflow(); return
+        self._animation_finish_timer = QTimer(self); self._animation_finish_timer.setSingleShot(True); self._animation_finish_timer.setInterval(320)
+        self._animation_finish_timer.timeout.connect(self._finish_reflow); self._animation_finish_timer.start()
 
-    def _animation_finished(self, animation):
-        if animation in self._animations:
-            self._animations.remove(animation)
+    def _finish_reflow(self):
+        if self._animation_finish_timer is not None:
+            self._animation_finish_timer.stop(); self._animation_finish_timer.deleteLater(); self._animation_finish_timer = None
+        self._animations = []
+        self.flow_layout.setEnabled(self._resize_layout_was_enabled); self.flow_layout.invalidate(); self.flow_layout.activate()
 
     def _stop_animations(self):
         for animation in self._animations:
-            animation.stop()
-            animation.deleteLater()
+            animation.stop(); animation.deleteLater()
         self._animations = []
+        if self._animation_finish_timer is not None:
+            self._animation_finish_timer.stop(); self._animation_finish_timer.deleteLater(); self._animation_finish_timer = None
+
+    def _cancel_resize_animation(self):
+        self._resize_timer.stop(); self._stop_animations(); self._resize_snapshot = None
+        self.flow_layout.setEnabled(True); self.flow_layout.invalidate(); self.flow_layout.activate()
