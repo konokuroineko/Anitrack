@@ -45,7 +45,8 @@ def application_stylesheet():
     radius = get("corner_radius")
     return f"""
         * {{ outline: none; }}
-        QMainWindow, QWidget {{ background: {COLORS['background']}; color: {COLORS['primary']}; font-family: "Segoe UI"; font-size: {FONT_SIZES['body']}px; }}
+        QMainWindow {{ background: {COLORS['background']}; color: {COLORS['primary']}; }}
+        QWidget {{ background: transparent; color: {COLORS['primary']}; font-family: "Segoe UI"; font-size: {FONT_SIZES['body']}px; }}
         QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
         QToolTip {{ background: {COLORS['surface_alt']}; color: {COLORS['primary']}; border: 1px solid {COLORS['border']}; padding: 7px 9px; }}
         QLineEdit, QComboBox, QSpinBox {{ background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: {radius}px; color: {COLORS['primary']}; padding: 10px 12px; selection-background-color: {COLORS['accent']}; }}
@@ -55,6 +56,7 @@ def application_stylesheet():
         QPushButton:pressed {{ background: {COLORS['surface_alt']}; }}
         QPushButton:disabled {{ color: {COLORS['muted']}; background: {COLORS['background_alt']}; }}
         QScrollArea {{ border: none; background: transparent; }}
+        QScrollArea > QWidget > QWidget {{ background: transparent; }}
         QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px 0; }}
         QScrollBar::handle:vertical {{ background: {COLORS['border']}; border-radius: 4px; min-height: 36px; }}
         QScrollBar::handle:vertical:hover {{ background: {COLORS['muted']}; }}
