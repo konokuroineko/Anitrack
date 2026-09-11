@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QPen, QColor
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
@@ -5,6 +7,9 @@ from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QSizePol
 
 from database import save_cover_path
 from ui.theme import COLORS
+
+
+IMAGE_DIRECTORY = Path("data") / "images" / "works"
 
 
 class CoverFrame(QFrame):
@@ -25,16 +30,11 @@ class CoverFrame(QFrame):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
-
         rect = self.rect().adjusted(2, 2, -2, -2)
-        radius = 11
         path = QPainterPath()
-        path.addRoundedRect(rect, radius, radius)
-
+        path.addRoundedRect(rect, 11, 11)
         if not self._pixmap.isNull():
-            scaled = self._pixmap.scaled(
-                rect.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
-            )
+            scaled = self._pixmap.scaled(rect.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
             x = max(0, (scaled.width() - rect.width()) // 2)
             y = max(0, (scaled.height() - rect.height()) // 2)
             cropped = scaled.copy(x, y, rect.width(), rect.height())
@@ -42,7 +42,6 @@ class CoverFrame(QFrame):
             painter.setClipPath(path)
             painter.drawPixmap(rect.topLeft(), cropped)
             painter.restore()
-
         painter.setPen(QPen(QColor(COLORS["accent"]), 3.0))
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)
@@ -54,8 +53,6 @@ class WorkCard(QFrame):
     progress_changed = Signal(int)
     add_requested = Signal(object)
 
-    # Covers fetched from AniList are kept in memory so rebuilding the grid during
-    # resize/fullscreen does not start a new request or flash the artwork.
     _cover_cache = {}
     _cover_failures = set()
 
@@ -82,7 +79,6 @@ class WorkCard(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
-
         self.cover = CoverFrame()
         root.addWidget(self.cover)
         self._load_cover()
@@ -150,10 +146,14 @@ class WorkCard(QFrame):
                 work_id = self._value("id")
                 if work_id:
                     try:
-                        save_cover_path(work_id, None)
+                        IMAGE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+                        path = IMAGE_DIRECTORY / f"{work_id}.jpg"
+                        if pixmap.save(str(path), "JPG", 85):
+                            save_cover_path(work_id, str(path))
                     except Exception:
-                        # The in-memory cache still prevents repeated downloads.
                         pass
+            else:
+                self._cover_failures.add(cover_url)
         else:
             self._cover_failures.add(cover_url)
         if reply is not None:
