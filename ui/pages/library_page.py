@@ -17,6 +17,7 @@ class LibraryPage(QWidget):
         self.current_sort = "Recently Added"
         self._cards = []
         self._empty_label = None
+        self._grid_columns = 0
         self._build_shell()
         self.refresh()
 
@@ -110,6 +111,7 @@ class LibraryPage(QWidget):
             empty.setAlignment(Qt.AlignCenter); empty.setStyleSheet(f"color:{COLORS['muted']};font-size:15px;padding:100px;")
             self.grid_layout.addWidget(empty, 0, 0, 1, 4)
             self._empty_label = empty
+            self._grid_columns = 0
             return
 
         for anime in self.anime_list:
@@ -118,17 +120,18 @@ class LibraryPage(QWidget):
             card.clicked.connect(self.work_selected)
             self._cards.append(card)
 
-        self._reflow_grid()
+        self._reflow_grid(force=True)
 
-    def _reflow_grid(self):
+    def _reflow_grid(self, force=False):
         if not self._cards:
             return
 
-        # Move the existing card widgets instead of destroying/recreating them.
-        # This makes resize reflow immediate and prevents text/images from briefly
-        # occupying stale rows while the window is changing size.
-        self._clear_grid(delete_widgets=False)
         columns = self._column_count()
+        if not force and columns == self._grid_columns:
+            return
+
+        self._clear_grid(delete_widgets=False)
+        self._grid_columns = columns
         for i, card in enumerate(self._cards):
             self.grid_layout.addWidget(card, i // columns, i % columns, Qt.AlignTop | Qt.AlignLeft)
 
