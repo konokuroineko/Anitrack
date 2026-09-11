@@ -40,8 +40,7 @@ class WorkCard(QFrame):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
 
-        # The orange outline surrounds the entire poster. It is a decorative frame,
-        # not a progress indicator, so it is always complete and never changes length.
+        # Solid decorative frame. It is intentionally not tied to watch progress.
         self.cover_shell = QFrame()
         self.cover_shell.setObjectName("coverShell")
         self.cover_shell.setFixedSize(210, 284)
@@ -110,21 +109,33 @@ class WorkCard(QFrame):
 
     def _set_cover(self, pixmap):
         size = self.cover.size()
-        scaled = pixmap.scaled(size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-        x = max(0, (scaled.width() - size.width()) // 2)
-        y = max(0, (scaled.height() - size.height()) // 2)
+
+        # KeepAspectRatioByExpanding guarantees that the source always fills the
+        # complete cover rectangle. The excess is cropped away before masking.
+        scaled = pixmap.scaled(
+            size,
+            Qt.KeepAspectRatioByExpanding,
+            Qt.SmoothTransformation,
+        )
+        x = (scaled.width() - size.width()) // 2
+        y = (scaled.height() - size.height()) // 2
         cropped = scaled.copy(x, y, size.width(), size.height())
 
+        # Render the cropped artwork into a transparent pixmap with rounded
+        # corners. This is the actual widget pixmap, so the image cannot escape
+        # the rounded mask or poke through the orange shell.
         result = QPixmap(size)
         result.fill(Qt.transparent)
         painter = QPainter(result)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.Antialiasing, True)
         path = QPainterPath()
         path.addRoundedRect(0, 0, size.width(), size.height(), 8, 8)
         painter.setClipPath(path)
         painter.drawPixmap(0, 0, cropped)
         painter.end()
+
         self.cover.setPixmap(result)
+        self.cover.setContentsMargins(0, 0, 0, 0)
 
     def _add_clicked(self):
         self.add_requested.emit(self.work)
