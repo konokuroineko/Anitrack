@@ -1,4 +1,4 @@
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal, QEvent, QTimer, QPropertyAnimation, QEasingCurve
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget, QLayout
 
 from database import get_all_library
@@ -95,6 +95,12 @@ class LibraryPage(QWidget):
         self.current_sort = "Recently Added"
         self._cards = []
         self._empty_label = None
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(120)
+        self._resize_timer.timeout.connect(self._animate_reflow)
+        self._resize_snapshot = None
+        self._animations = []
         self._build_shell()
         self.refresh()
 
@@ -135,20 +141,31 @@ class LibraryPage(QWidget):
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        container = QWidget()
-        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.flow_layout = FlowLayout(container, h_spacing=24, v_spacing=30)
-        self.scroll_area.setWidget(container)
+        self.container = QWidget()
+        self.container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.container.installEventFilter(self)
+        self.flow_layout = FlowLayout(self.container, h_spacing=24, v_spacing=30)
+        self.scroll_area.setWidget(self.container)
         root.addWidget(self.scroll_area, 1)
         self._set_filter("All")
 
+    def eventFilter(self, watched, event):
+        if watched is self.container and event.type() == QEvent.Resize and self._cards:
+            if self._resize_snapshot is None:
+                self._resize_snapshot = {id(card): QPoint(card.pos()) for card in self._cards}
+            self._resize_timer.start()
+        return super().eventFilter(watched, event)
+
     def refresh(self):
+        self._stop_animations()
+        self._resize_snapshot = None
         self.all_anime = list(get_all_library()); self._apply_filter(); self._apply_sort(); self._populate()
 
     def _set_filter(self, value):
         self.current_filter = value
         for name, button in self.filter_buttons.items():
             button.setChecked(name == value); button.setStyleSheet(self._filter_style(name == value))
+        self._stop_animations(); self._resize_snapshot = None
         self._apply_filter(); self._apply_sort(); self._populate()
 
     def _filter_style(self, active):
@@ -166,9 +183,11 @@ class LibraryPage(QWidget):
         else: self.anime_list.sort(key=lambda x:x["id"], reverse=True)
 
     def _sort_changed(self, value):
-        self.current_sort = value; self._populate()
+        self.current_sort = value; self._stop_animations(); self._resize_snapshot = None; self._populate()
 
     def _clear_cards(self):
+        self._stop_animations()
+        self._resize_snapshot = None
         while self.flow_layout.count():
             item = self.flow_layout.takeAt(0)
             widget = item.widget()
@@ -194,3 +213,43 @@ class LibraryPage(QWidget):
             card.clicked.connect(self.work_selected)
             self._cards.append(card)
             self.flow_layout.addWidget(card)
+
+    def _animate_reflow(self):
+        snapshot = self._resize_snapshot
+        self._resize_snapshot = None
+        if not snapshot or not self._cards:
+            return
+
+        self._stop_animations()
+        animations = []
+        for card in self._cards:
+            old_pos = snapshot.get(id(card))
+            if old_pos is None:
+                continue
+            new_pos = card.pos()
+            if old_pos == new_pos:
+                continue
+
+            # Put the card back at its pre-resize position, then let it glide
+            # to the position produced by the final FlowLayout geometry.
+            card.move(old_pos)
+            animation = QPropertyAnimation(card, b"pos", self)
+            animation.setDuration(260)
+            animation.setStartValue(old_pos)
+            animation.setEndValue(new_pos)
+            animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+            animations.append(animation)
+            animation.finished.connect(lambda a=animation: self._animation_finished(a))
+            animation.start()
+
+        self._animations = animations
+
+    def _animation_finished(self, animation):
+        if animation in self._animations:
+            self._animations.remove(animation)
+
+    def _stop_animations(self):
+        for animation in self._animations:
+            animation.stop()
+            animation.deleteLater()
+        self._animations = []
