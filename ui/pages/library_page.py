@@ -1,9 +1,87 @@
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget, QLayout
 
 from database import get_all_library
 from ui.theme import COLORS
 from ui.widgets.work_card import WorkCard
+
+
+class FlowLayout(QLayout):
+    """Fixed-width flowing layout that lets Qt handle resize geometry naturally."""
+
+    def __init__(self, parent=None, margin=0, h_spacing=24, v_spacing=30):
+        super().__init__(parent)
+        self._items = []
+        self._h_spacing = h_spacing
+        self._v_spacing = v_spacing
+        self.setContentsMargins(margin, margin, margin, margin)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Orientation(0))
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        margins = self.contentsMargins()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
+        return size
+
+    def _do_layout(self, rect, test_only):
+        margins = self.contentsMargins()
+        effective = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
+        x = effective.x()
+        y = effective.y()
+        line_height = 0
+
+        for item in self._items:
+            widget_size = item.sizeHint()
+            if widget_size.width() <= 0:
+                continue
+
+            next_x = x + widget_size.width()
+            if x > effective.x() and next_x > effective.right() + 1:
+                x = effective.x()
+                y += line_height + self._v_spacing
+                next_x = x + widget_size.width()
+                line_height = 0
+
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), widget_size))
+
+            x = next_x + self._h_spacing
+            line_height = max(line_height, widget_size.height())
+
+        return y + line_height - rect.y() + margins.bottom()
 
 
 class LibraryPage(QWidget):
@@ -17,7 +95,6 @@ class LibraryPage(QWidget):
         self.current_sort = "Recently Added"
         self._cards = []
         self._empty_label = None
-        self._grid_columns = 0
         self._build_shell()
         self.refresh()
 
@@ -52,14 +129,17 @@ class LibraryPage(QWidget):
         self.sort_box.currentTextChanged.connect(self._sort_changed); row.addWidget(self.sort_box); row.addStretch()
         root.addWidget(controls)
 
-        self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True); self.scroll_area.setFrameShape(QFrame.NoFrame); self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        container = QWidget(); self.grid_layout = QGridLayout(container)
-        self.grid_layout.setContentsMargins(4, 10, 4, 20)
-        self.grid_layout.setHorizontalSpacing(24)
-        self.grid_layout.setVerticalSpacing(30)
-        self.grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.scroll_area.setWidget(container); root.addWidget(self.scroll_area, 1)
+
+        container = QWidget()
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.flow_layout = FlowLayout(container, h_spacing=24, v_spacing=30)
+        self.scroll_area.setWidget(container)
+        root.addWidget(self.scroll_area, 1)
         self._set_filter("All")
 
     def refresh(self):
@@ -86,32 +166,26 @@ class LibraryPage(QWidget):
         else: self.anime_list.sort(key=lambda x:x["id"], reverse=True)
 
     def _sort_changed(self, value):
-        self.current_sort = value; self._apply_sort(); self._populate()
+        self.current_sort = value; self._populate()
 
-    def _clear_grid(self, delete_widgets=True):
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
+    def _clear_cards(self):
+        while self.flow_layout.count():
+            item = self.flow_layout.takeAt(0)
             widget = item.widget()
-            if widget is not None and delete_widgets:
+            if widget is not None:
                 widget.deleteLater()
-
-    def _column_count(self):
-        card_width = 210
-        column_gap = 24
-        available_width = max(0, self.scroll_area.viewport().width() - 8)
-        return max(1, (available_width + column_gap) // (card_width + column_gap))
-
-    def _populate(self):
-        self._clear_grid()
         self._cards = []
         self._empty_label = None
+
+    def _populate(self):
+        self._clear_cards()
         self.count_label.setText(f"{len(self.anime_list)} title{'s' if len(self.anime_list) != 1 else ''}")
         if not self.anime_list:
             empty = QLabel("Nothing here yet\n\nAdd titles from Search to build your collection.")
-            empty.setAlignment(Qt.AlignCenter); empty.setStyleSheet(f"color:{COLORS['muted']};font-size:15px;padding:100px;")
-            self.grid_layout.addWidget(empty, 0, 0, 1, 4)
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(f"color:{COLORS['muted']};font-size:15px;padding:100px;")
+            self.flow_layout.addWidget(empty)
             self._empty_label = empty
-            self._grid_columns = 0
             return
 
         for anime in self.anime_list:
@@ -119,22 +193,4 @@ class LibraryPage(QWidget):
             card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             card.clicked.connect(self.work_selected)
             self._cards.append(card)
-
-        self._reflow_grid(force=True)
-
-    def _reflow_grid(self, force=False):
-        if not self._cards:
-            return
-
-        columns = self._column_count()
-        if not force and columns == self._grid_columns:
-            return
-
-        self._clear_grid(delete_widgets=False)
-        self._grid_columns = columns
-        for i, card in enumerate(self._cards):
-            self.grid_layout.addWidget(card, i // columns, i % columns, Qt.AlignTop | Qt.AlignLeft)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._reflow_grid()
+            self.flow_layout.addWidget(card)
