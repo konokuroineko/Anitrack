@@ -1,9 +1,60 @@
 from PySide6.QtCore import Qt, Signal, QUrl
-from PySide6.QtGui import QPixmap, QPainter, QPainterPath
+from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QPen
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout
 
 from ui.theme import COLORS
+
+
+class CoverFrame(QFrame):
+    """Poster surface that crops artwork to the exact frame and paints the ring above it."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pixmap = QPixmap()
+        self.setFixedSize(210, 284)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+    def set_pixmap(self, pixmap):
+        self._pixmap = pixmap
+        self.update()
+
+    def paintEvent(self, event):
+        del event
+        size = self.size()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+
+        # The artwork is scaled by expansion, then center-cropped. Nothing is
+        # letterboxed and no part of the source can stick outside the frame.
+        if not self._pixmap.isNull():
+            scaled = self._pixmap.scaled(
+                size,
+                Qt.KeepAspectRatioByExpanding,
+                Qt.SmoothTransformation,
+            )
+            x = max(0, (scaled.width() - size.width()) // 2)
+            y = max(0, (scaled.height() - size.height()) // 2)
+            cropped = scaled.copy(x, y, size.width(), size.height())
+
+            artwork_path = QPainterPath()
+            artwork_path.addRoundedRect(1, 1, size.width() - 2, size.height() - 2, 11, 11)
+            painter.save()
+            painter.setClipPath(artwork_path)
+            painter.drawPixmap(0, 0, cropped)
+            painter.restore()
+        else:
+            painter.fillRect(self.rect(), Qt.transparent)
+
+        # Paint the orange ring LAST so it always sits cleanly above the cover.
+        ring = QPainterPath()
+        ring.addRoundedRect(1, 1, size.width() - 2, size.height() - 2, 11, 11)
+        pen = QPen(COLORS["accent"], 2)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(ring)
+        painter.end()
 
 
 class WorkCard(QFrame):
@@ -24,12 +75,6 @@ class WorkCard(QFrame):
         self.setStyleSheet(f"""
             QFrame#posterCard {{ background: transparent; border: none; }}
             QLabel {{ background: transparent; border: none; }}
-            QFrame#coverShell {{
-                background: {COLORS['surface']};
-                border: 2px solid {COLORS['accent']};
-                border-radius: 12px;
-            }}
-            QLabel#coverFrame {{ background: {COLORS['surface']}; border: none; }}
             QLabel#title {{ color: {COLORS['primary']}; font-size: 13px; font-weight: 760; }}
             QLabel#meta {{ color: {COLORS['muted']}; font-size: 11px; }}
             QPushButton#add {{ background: {COLORS['accent']}; color: #111318; border: none; border-radius: 8px; padding: 7px; font-weight: 800; }}
@@ -40,20 +85,10 @@ class WorkCard(QFrame):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
 
-        # Solid decorative frame. It is intentionally not tied to watch progress.
-        self.cover_shell = QFrame()
-        self.cover_shell.setObjectName("coverShell")
-        self.cover_shell.setFixedSize(210, 284)
-        shell_layout = QVBoxLayout(self.cover_shell)
-        shell_layout.setContentsMargins(4, 4, 4, 4)
-        shell_layout.setSpacing(0)
-
-        self.cover = QLabel()
-        self.cover.setObjectName("coverFrame")
-        self.cover.setFixedSize(202, 276)
-        self.cover.setAlignment(Qt.AlignCenter)
-        shell_layout.addWidget(self.cover)
-        root.addWidget(self.cover_shell)
+        # One surface only: the artwork fills the entire poster and the orange
+        # ring is painted over it. There is deliberately no inner padding/gap.
+        self.cover = CoverFrame()
+        root.addWidget(self.cover)
         self._load_cover()
 
         title = QLabel(self._title())
@@ -90,7 +125,7 @@ class WorkCard(QFrame):
         if cover_path:
             pixmap = QPixmap(str(cover_path))
             if not pixmap.isNull():
-                self._set_cover(pixmap)
+                self.cover.set_pixmap(pixmap)
                 return
         cover_url = self._value("cover_url") or (self._value("coverImage") or {}).get("large")
         if cover_url:
@@ -103,39 +138,9 @@ class WorkCard(QFrame):
         if reply is not None and reply.error() == reply.NetworkError.NoError:
             pixmap = QPixmap()
             if pixmap.loadFromData(reply.readAll()):
-                self._set_cover(pixmap)
+                self.cover.set_pixmap(pixmap)
         if reply is not None:
             reply.deleteLater()
-
-    def _set_cover(self, pixmap):
-        size = self.cover.size()
-
-        # KeepAspectRatioByExpanding guarantees that the source always fills the
-        # complete cover rectangle. The excess is cropped away before masking.
-        scaled = pixmap.scaled(
-            size,
-            Qt.KeepAspectRatioByExpanding,
-            Qt.SmoothTransformation,
-        )
-        x = (scaled.width() - size.width()) // 2
-        y = (scaled.height() - size.height()) // 2
-        cropped = scaled.copy(x, y, size.width(), size.height())
-
-        # Render the cropped artwork into a transparent pixmap with rounded
-        # corners. This is the actual widget pixmap, so the image cannot escape
-        # the rounded mask or poke through the orange shell.
-        result = QPixmap(size)
-        result.fill(Qt.transparent)
-        painter = QPainter(result)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, size.width(), size.height(), 8, 8)
-        painter.setClipPath(path)
-        painter.drawPixmap(0, 0, cropped)
-        painter.end()
-
-        self.cover.setPixmap(result)
-        self.cover.setContentsMargins(0, 0, 0, 0)
 
     def _add_clicked(self):
         self.add_requested.emit(self.work)
