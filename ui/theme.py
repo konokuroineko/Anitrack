@@ -29,6 +29,7 @@ def application_stylesheet():
     return f"""
         * {{ outline: none; }}
         QMainWindow, QWidget {{ background: {COLORS['background']}; color: {COLORS['primary']}; font-family: "Segoe UI"; font-size: 13px; }}
+        QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
         QToolTip {{ background: {COLORS['surface_alt']}; color: {COLORS['primary']}; border: 1px solid {COLORS['border']}; padding: 7px 9px; }}
         QLineEdit, QComboBox, QSpinBox {{ background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: 10px; color: {COLORS['primary']}; padding: 10px 12px; selection-background-color: {COLORS['accent']}; }}
         QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border-color: {COLORS['accent']}; }}
