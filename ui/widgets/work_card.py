@@ -20,10 +20,15 @@ class WorkCard(QFrame):
         self._cover_reply = None
         self.setObjectName("posterCard")
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedWidth(202)
+        self.setFixedWidth(210)
         self.setStyleSheet(f"""
             QFrame#posterCard {{ background: transparent; border: none; }}
             QLabel {{ background: transparent; border: none; }}
+            QFrame#coverShell {{
+                background: {COLORS['surface']};
+                border: 2px solid {COLORS['accent']};
+                border-radius: 12px;
+            }}
             QLabel#coverFrame {{ background: {COLORS['surface']}; border: none; }}
             QLabel#title {{ color: {COLORS['primary']}; font-size: 13px; font-weight: 760; }}
             QLabel#meta {{ color: {COLORS['muted']}; font-size: 11px; }}
@@ -35,25 +40,22 @@ class WorkCard(QFrame):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
 
+        # The orange outline surrounds the entire poster. It is a decorative frame,
+        # not a progress indicator, so it is always complete and never changes length.
+        self.cover_shell = QFrame()
+        self.cover_shell.setObjectName("coverShell")
+        self.cover_shell.setFixedSize(210, 284)
+        shell_layout = QVBoxLayout(self.cover_shell)
+        shell_layout.setContentsMargins(4, 4, 4, 4)
+        shell_layout.setSpacing(0)
+
         self.cover = QLabel()
         self.cover.setObjectName("coverFrame")
         self.cover.setFixedSize(202, 276)
         self.cover.setAlignment(Qt.AlignCenter)
-        root.addWidget(self.cover)
+        shell_layout.addWidget(self.cover)
+        root.addWidget(self.cover_shell)
         self._load_cover()
-
-        # This is the visual orange accent line on the poster, not an episode control.
-        # It is deliberately always present on library posters.
-        if mode == "library":
-            self.cover_accent = QFrame(self.cover)
-            self.cover_accent.setObjectName("coverAccent")
-            self.cover_accent.setAttribute(Qt.WA_TransparentForMouseEvents)
-            self.cover_accent.setGeometry(0, self.cover.height() - 5, self.cover.width(), 5)
-            self.cover_accent.setStyleSheet(
-                f"QFrame#coverAccent {{ background:{COLORS['accent']}; border:0; "
-                f"border-bottom-left-radius:10px; border-bottom-right-radius:10px; }}"
-            )
-            self.cover_accent.raise_()
 
         title = QLabel(self._title())
         title.setObjectName("title")
@@ -118,7 +120,7 @@ class WorkCard(QFrame):
         painter = QPainter(result)
         painter.setRenderHint(QPainter.Antialiasing)
         path = QPainterPath()
-        path.addRoundedRect(0, 0, size.width(), size.height(), 10, 10)
+        path.addRoundedRect(0, 0, size.width(), size.height(), 8, 8)
         painter.setClipPath(path)
         painter.drawPixmap(0, 0, cropped)
         painter.end()
