@@ -21,7 +21,7 @@ _DEFAULTS = {
 
 
 def settings():
-    return QSettings("AniTrack", "AniTrack")
+    return QSettings("NekoTrack", "NekoTrack")
 
 
 def get(key):
@@ -33,7 +33,7 @@ def get(key):
         return bool(value)
     if isinstance(default, int):
         try:
-            return int(value)
+            return max(1, int(value)) if key == "font_size" else int(value)
         except (TypeError, ValueError):
             return default
     return value
