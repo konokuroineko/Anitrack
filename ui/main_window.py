@@ -220,6 +220,7 @@ class MainWindow(QMainWindow):
             save_episodes(anime["id"], anime.get("streamingEpisodes"))
             save_staff(anime["id"], (anime.get("staff") or {}).get("edges"))
             add_to_library(anime["id"], "Planning")
+            self.library_page.refresh()
             button.setText("Added")
             button.setEnabled(False)
             self.start_cover_download(anime["id"], (anime.get("coverImage") or {}).get("large"), button)
