@@ -6,6 +6,24 @@ from PySide6.QtWidgets import QFrame, QLabel, QHBoxLayout, QVBoxLayout
 from ui.theme import COLORS, card_stylesheet, muted_label_stylesheet
 
 
+RELATION_LABELS = {
+    "ADAPTATION": "Adaptation",
+    "SOURCE": "Source material",
+    "PREQUEL": "Prequel",
+    "SEQUEL": "Sequel",
+    "PARENT": "Parent / origin",
+    "SIDE_STORY": "Side story",
+    "CHARACTER": "Shared characters",
+    "SUMMARY": "Summary",
+    "ALTERNATIVE": "Alternative version",
+    "SPIN_OFF": "Spin-off",
+    "OTHER": "Other connection",
+    "SAME_UNIVERSE": "Same universe",
+    "COMPILATION": "Compilation",
+    "CONTAINS": "Contains",
+}
+
+
 class RelationCard(QFrame):
     clicked = Signal(object)
 
@@ -25,13 +43,22 @@ class RelationCard(QFrame):
 
         text_layout = QVBoxLayout()
         title = QLabel(self._value("title") or "Unknown work")
-        title.setStyleSheet(f"color: {COLORS['primary']}; font-weight: 600;")
+        title.setStyleSheet(f"color: {COLORS['primary']}; font-weight: 650;")
         title.setWordWrap(True)
         text_layout.addWidget(title)
-        relation_type = (self._value("relation_type") or "Related").replace("_", " ").title()
-        label = QLabel(relation_type)
-        label.setStyleSheet(muted_label_stylesheet())
-        text_layout.addWidget(label)
+
+        relation_type = self._value("relation_type") or "OTHER"
+        relation_label = RELATION_LABELS.get(relation_type, relation_type.replace("_", " ").title())
+        source_title = self._value("source_title")
+        if source_title:
+            connection_label = QLabel(f"{source_title}  →  {relation_label}")
+            connection_label.setWordWrap(True)
+            connection_label.setStyleSheet(f"color: {COLORS['muted']}; font-size: 11px;")
+            text_layout.addWidget(connection_label)
+        else:
+            label = QLabel(relation_label)
+            label.setStyleSheet(muted_label_stylesheet())
+            text_layout.addWidget(label)
         text_layout.addStretch()
         layout.addLayout(text_layout)
 
@@ -88,8 +115,6 @@ class RelationCard(QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            # Emit only. The receiver may navigate away and destroy this widget,
-            # so never call the base implementation afterward.
             self.clicked.emit(self.relation)
             event.accept()
             return
