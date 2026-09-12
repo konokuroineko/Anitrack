@@ -26,16 +26,22 @@ _LEGACY_APPLICATION = "AniTrack"
 
 
 def settings():
-    """Return NekoTrack's settings store, migrating the old AniTrack store once."""
+    """Return NekoTrack's settings store, migrating old AniTrack keys when needed."""
     current = QSettings(_ORGANIZATION, _APPLICATION)
     legacy = QSettings(_LEGACY_ORGANIZATION, _LEGACY_APPLICATION)
 
-    # The app was renamed from AniTrack to NekoTrack. Preserve existing user
-    # preferences instead of treating the new settings namespace as a reset.
-    if not current.allKeys() and legacy.allKeys():
-        for key in legacy.allKeys():
-            current.setValue(key, legacy.value(key))
-        current.sync()
+    # The app was renamed from AniTrack to NekoTrack. Copy only keys that do
+    # not already exist so an existing NekoTrack preference is never replaced.
+    legacy_keys = legacy.allKeys()
+    if legacy_keys:
+        current_keys = set(current.allKeys())
+        changed = False
+        for key in legacy_keys:
+            if key not in current_keys:
+                current.setValue(key, legacy.value(key))
+                changed = True
+        if changed:
+            current.sync()
 
     return current
 
