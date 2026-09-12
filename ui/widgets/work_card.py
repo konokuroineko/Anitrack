@@ -84,6 +84,7 @@ class WorkCard(QFrame):
             QLabel#title {{ color: {COLORS['primary']}; font-size: {get('font_size')}px; font-weight: 760; }}
             QFrame#posterCard:hover QLabel#title {{ color: {COLORS['accent_hover']}; }}
             QLabel#meta {{ color: {COLORS['muted']}; font-size: 11px; }}
+            QLabel#bundle {{ color: {COLORS['accent_hover']}; font-size: 10px; font-weight: 800; }}
             QPushButton#add {{ background: {COLORS['accent']}; color: #111318; border: none; border-radius: 8px; padding: 7px; font-weight: 800; }}
             QPushButton#add:hover {{ background: {COLORS['accent_hover']}; }}
         """)
@@ -101,6 +102,14 @@ class WorkCard(QFrame):
         title.setMaximumHeight(42)
         title.setToolTip(title.text())
         root.addWidget(title)
+
+        series_count = self._value("_series_count")
+        if series_count and int(series_count) > 1:
+            label = self._value("_bundle_label") or "entries"
+            bundle = QLabel(f"Bundle · {int(series_count)} {label}")
+            bundle.setObjectName("bundle")
+            bundle.setToolTip("This bundle contains: " + ", ".join(self._member_titles()))
+            root.addWidget(bundle)
 
         meta_parts = []
         fmt = self._value("format")
@@ -123,6 +132,17 @@ class WorkCard(QFrame):
             add_button.setCursor(Qt.PointingHandCursor)
             add_button.clicked.connect(self._add_clicked)
             root.addWidget(add_button)
+
+    def _member_titles(self):
+        members = self._value("_series_members") or []
+        titles = []
+        for member in members:
+            title = member.get("title") if hasattr(member, "get") else None
+            if isinstance(title, dict):
+                title = title.get("english") or title.get("romaji") or title.get("native")
+            if title:
+                titles.append(str(title))
+        return titles
 
     def _load_cover(self):
         cover_path = self._value("cover_path")
