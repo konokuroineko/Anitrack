@@ -20,12 +20,18 @@ class InfiniteScrollArea(QScrollArea):
 class SearchWorker(QObject):
     finished = Signal(object)
     error = Signal(str)
-    def __init__(self, search_text, page, media_type):
+    def __init__(self, search_text, page, media_type, media_format):
         super().__init__()
-        self.search_text, self.page, self.media_type = search_text, page, media_type
+        self.search_text, self.page = search_text, page
+        self.media_type, self.media_format = media_type, media_format
     def run(self):
         try:
-            self.finished.emit(search_anime(self.search_text, self.page, media_type=self.media_type))
+            self.finished.emit(search_anime(
+                self.search_text,
+                self.page,
+                media_type=self.media_type,
+                media_format=self.media_format,
+            ))
         except Exception as error:
             self.error.emit(str(error))
 
@@ -37,6 +43,7 @@ class SearchPage(QWidget):
         self.add_to_library = add_to_library
         self.current_search = ""
         self.current_media_type = "ANIME"
+        self.current_media_format = None
         self.current_page = 1
         self.has_next_page = False
         self.is_loading = False
@@ -77,8 +84,12 @@ class SearchPage(QWidget):
 
         type_row = QHBoxLayout()
         type_label = QLabel("TYPE")
-        type_label.setStyleSheet(f"font-size: 10px; font-weight: 850; color: {COLORS['muted']}; letter-spacing: 1px;")
-        type_row.addWidget(type_label)
+        type_label.setObjectName("typeLabel")
+        type_label.setStyleSheet(
+            f"font-size: 10px; font-weight: 800; color: {COLORS['muted']}; "
+            "letter-spacing: 1.5px; padding: 0; background: transparent; border: none;"
+        )
+        type_row.addWidget(type_label, 0, Qt.AlignVCenter)
         self.media_filter = QComboBox()
         self.media_filter.addItems(["Anime", "Manga", "Novels"])
         self.media_filter.setMinimumWidth(130)
@@ -115,15 +126,19 @@ class SearchPage(QWidget):
         if self.current_search:
             self.search_clicked()
 
-    def selected_media_type(self):
-        return {"Anime": "ANIME", "Manga": "MANGA", "Novels": "MANGA"}[self.media_filter.currentText()]
+    def selected_media_filter(self):
+        return {
+            "Anime": ("ANIME", None),
+            "Manga": ("MANGA", "MANGA"),
+            "Novels": ("MANGA", "NOVEL"),
+        }[self.media_filter.currentText()]
 
     def search_clicked(self):
         text = self.search.text().strip()
         if not text or self.is_loading:
             return
         self.current_search = text
-        self.current_media_type = self.selected_media_type()
+        self.current_media_type, self.current_media_format = self.selected_media_filter()
         self.current_page = 1
         self.has_next_page = False
         self.clear_results()
@@ -139,7 +154,7 @@ class SearchPage(QWidget):
 
     def start_search(self, text, page):
         thread = QThread()
-        worker = SearchWorker(text, page, self.current_media_type)
+        worker = SearchWorker(text, page, self.current_media_type, self.current_media_format)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self.search_finished)
@@ -218,8 +233,14 @@ class SearchPage(QWidget):
                 cards.append(widget)
         for card in cards:
             self.grid_layout.removeWidget(card)
+
         columns = max(1, self.results_scroll.viewport().width() // 230)
-        for i, card in enumerate(cards):
-            self.grid_layout.addWidget(card, i // columns, i % columns)
+        columns = min(columns, max(1, len(cards)))
         for col in range(columns):
             self.grid_layout.setColumnStretch(col, 1)
+
+        for i, card in enumerate(cards):
+            row = i // columns
+            row_count = min(columns, len(cards) - row * columns)
+            start_col = (columns - row_count) // 2
+            self.grid_layout.addWidget(card, row, start_col + (i % columns), Qt.AlignHCenter)
