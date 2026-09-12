@@ -4,7 +4,7 @@ from PySide6.QtCore import QObject, QThread, Qt, Signal
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from api import get_media_details
-from database import get_all_relation_cards, get_library_relation_sync_ids, get_relation_type_counts, save_anime
+from database import get_all_relation_cards, get_library_relation_sync_ids, get_connection, save_anime
 from ui.theme import COLORS, SPACING
 from ui.widgets.relation_card import RelationCard
 
@@ -32,7 +32,7 @@ class RelationSyncWorker(QObject):
 
     def __init__(self, work_ids):
         super().__init__()
-        self.work_ids = work_ids
+        self.work_ids = sorted(set(int(work_id) for work_id in work_ids))
 
     def run(self):
         for work_id in self.work_ids:
@@ -99,7 +99,6 @@ class RelationshipPage(QWidget):
         self.content.setSpacing(12)
         self.scroll.setWidget(self.container)
         root.addWidget(self.scroll, 1)
-
         self._populate_empty()
 
     def _populate_empty(self):
@@ -112,6 +111,17 @@ class RelationshipPage(QWidget):
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet(f"color:{COLORS['muted']};font-size:14px;padding:80px;")
         self.content.addWidget(label)
+
+    def _missing_relation_targets(self):
+        connection = get_connection()
+        rows = connection.execute("""
+            SELECT DISTINCT work_relations.target_id
+            FROM work_relations
+            LEFT JOIN works ON works.id = work_relations.target_id
+            WHERE works.id IS NULL
+        """).fetchall()
+        connection.close()
+        return [int(row["target_id"]) for row in rows]
 
     def refresh(self):
         rows = get_all_relation_cards()
@@ -129,6 +139,13 @@ class RelationshipPage(QWidget):
         self.filter_box.setCurrentIndex(index if index >= 0 else 0)
         self.filter_box.blockSignals(False)
         self._populate()
+
+        if not self._sync_started:
+            work_ids = get_library_relation_sync_ids()
+            work_ids.extend(self._missing_relation_targets())
+            work_ids = sorted(set(work_ids))
+            if work_ids:
+                self._start_relation_sync(work_ids)
 
     def _populate(self):
         while self.content.count():
@@ -161,7 +178,6 @@ class RelationshipPage(QWidget):
             heading = QLabel(RELATION_LABELS.get(relation_type, relation_type.replace("_", " ").title()))
             heading.setStyleSheet(f"font-size:16px;font-weight:800;color:{COLORS['primary']};padding:10px 2px 2px;")
             self.content.addWidget(heading)
-
             wrapper = QWidget()
             grid = QVBoxLayout(wrapper)
             grid.setContentsMargins(0, 0, 0, 0)
@@ -169,24 +185,20 @@ class RelationshipPage(QWidget):
             for row in relation_rows:
                 card = RelationCard(dict(row))
                 card.setToolTip(
-                    f"{row['source_title'] or 'Unknown'} → "
+                    f"{row['source_title'] or 'Unknown work'} → "
                     f"{RELATION_LABELS.get(relation_type, relation_type.replace('_', ' ').title())} → "
-                    f"{row['title'] or 'Unknown'}"
+                    f"{row['title'] or 'Unknown work'}"
                 )
                 card.clicked.connect(self.work_selected)
                 grid.addWidget(card)
             self.content.addWidget(wrapper)
-
         self.content.addStretch()
 
-    def _start_relation_sync(self):
-        if self._sync_started:
+    def _start_relation_sync(self, work_ids):
+        if self._sync_thread is not None and self._sync_thread.isRunning():
             return
         self._sync_started = True
-        work_ids = get_library_relation_sync_ids()
-        if not work_ids:
-            return
-        self.count_label.setText(f"Syncing relations for {len(work_ids)} library title{'s' if len(work_ids) != 1 else ''}…")
+        self.count_label.setText(f"Syncing {len(work_ids)} related title{'s' if len(work_ids) != 1 else ''}…")
         self._sync_thread = QThread(self)
         self._sync_worker = RelationSyncWorker(work_ids)
         self._sync_worker.moveToThread(self._sync_thread)
@@ -205,4 +217,3 @@ class RelationshipPage(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh()
-        self._start_relation_sync()
