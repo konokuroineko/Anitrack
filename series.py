@@ -24,203 +24,106 @@ def _bundle_summary(members):
         fmt = str(member.get("format") or "").upper() if hasattr(member, "get") else str(member["format"] or "").upper()
         if fmt in {"TV", "TV_SHORT"}:
             counts["seasons"] += 1
-        elif fmt == "OVA":
-            counts["OVAs"] += 1
-        elif fmt == "ONA":
-            counts["ONAs"] += 1
-        elif fmt == "MOVIE":
-            counts["movies"] += 1
-        elif fmt == "SPECIAL":
-            counts["specials"] += 1
-        elif fmt == "MUSIC":
-            counts["music"] += 1
-        elif fmt:
-            counts[fmt.lower()] += 1
-        else:
-            counts["entries"] += 1
+        elif fmt == "OVA": counts["OVAs"] += 1
+        elif fmt == "ONA": counts["ONAs"] += 1
+        elif fmt == "MOVIE": counts["movies"] += 1
+        elif fmt == "SPECIAL": counts["specials"] += 1
+        elif fmt == "MUSIC": counts["music"] += 1
+        elif fmt: counts[fmt.lower()] += 1
+        else: counts["entries"] += 1
     order = ["seasons", "OVAs", "ONAs", "movies", "specials", "music"]
-    parts = [f"{counts[key]} {key}" for key in order if counts[key]]
-    extras = [f"{count} {key}" for key, count in counts.items() if key not in order]
-    return " · ".join(parts + extras)
+    return " · ".join([f"{counts[key]} {key}" for key in order if counts[key]] + [f"{count} {key}" for key, count in counts.items() if key not in order])
 
 
-def _search_relation_getter(item):
-    result = []
-    for edge in (item.get("relations") or {}).get("edges", []):
-        target_id = (edge.get("node") or {}).get("id")
-        if target_id:
-            result.append((edge.get("relationType"), int(target_id)))
-    return result
+def _title_text(item):
+    title = item.get("title") or {}
+    return title.get("english") or title.get("romaji") or title.get("native") or "" if isinstance(title, dict) else str(title)
+
+
+def _search_relation_edges(item):
+    return (item.get("relations") or {}).get("edges", [])
 
 
 def group_media_results(results):
-    """Collapse search results into series using relations and the title heuristic."""
-    if not results:
-        return []
-
-    ids = {int(item["id"]) for item in results}
-    parent = {item_id: item_id for item_id in ids}
-
+    """Group search hits and directly related series entries."""
+    if not results: return []
+    original_ids = {int(item["id"]) for item in results}
+    members = list(results)
+    known_ids = set(original_ids)
+    for item in results:
+        for edge in _search_relation_edges(item):
+            if edge.get("relationType") not in SERIES_RELATIONS: continue
+            node = edge.get("node") or {}; target_id = node.get("id")
+            if not target_id or int(target_id) in known_ids: continue
+            members.append({"id": int(target_id), "type": node.get("type"), "format": node.get("format"), "title": node.get("title") or {}, "coverImage": node.get("coverImage") or {}, "_related_only": True})
+            known_ids.add(int(target_id))
+    ids = {int(item["id"]) for item in members}; parent = {item_id: item_id for item_id in ids}
     def find(item_id):
         while parent[item_id] != item_id:
-            parent[item_id] = parent[parent[item_id]]
-            item_id = parent[item_id]
+            parent[item_id] = parent[parent[item_id]]; item_id = parent[item_id]
         return item_id
-
     def union(left, right):
-        left_root, right_root = find(left), find(right)
-        if left_root != right_root:
-            parent[right_root] = left_root
-
-    # First use AniList's relationship graph. This catches entries whose
-    # titles differ substantially but are still part of the same series.
-    for item in results:
+        left, right = find(left), find(right)
+        if left != right: parent[right] = left
+    for item in members:
         item_id = int(item["id"])
-        for relation_type, target_id in _search_relation_getter(item):
-            if relation_type in SERIES_RELATIONS and target_id in ids:
-                union(item_id, target_id)
-
-    # Then use the same safe title normalization as the Library. This is the
-    # important fallback for search: users should not see Season 1, Season 2,
-    # Final Season, Part 1, etc. as separate cards just because AniList's
-    # search page does not return their relation partner in the same page.
+        for edge in _search_relation_edges(item):
+            target_id = (edge.get("node") or {}).get("id")
+            if edge.get("relationType") in SERIES_RELATIONS and target_id and int(target_id) in ids: union(item_id, int(target_id))
     by_title = {}
-    for item in results:
-        key = _series_key((item.get("title") or {}).get("english")
-                          or (item.get("title") or {}).get("romaji")
-                          or (item.get("title") or {}).get("native"))
-        if not key:
-            continue
-        item_id = int(item["id"])
-        if key in by_title:
-            union(item_id, by_title[key])
-        else:
-            by_title[key] = item_id
-
+    for item in members:
+        key = _series_key(_title_text(item))
+        if key:
+            item_id = int(item["id"]); union(item_id, by_title[key]) if key in by_title else by_title.setdefault(key, item_id)
     groups = defaultdict(list)
-    for item in results:
-        groups[find(int(item["id"]))].append(item)
-
-    grouped = []
-    for members in groups.values():
-        members.sort(key=lambda item: (
-            (item.get("startDate") or {}).get("year") is None,
-            (item.get("startDate") or {}).get("year") or 9999,
-            int(item["id"]),
-        ))
-        representative = dict(members[0])
-        representative["_series_count"] = len(members)
-        representative["_series_members"] = members
-        representative["_bundle_summary"] = _bundle_summary(members)
-        grouped.append(representative)
-
-    # Keep AniList's search ordering as much as possible: the representative
-    # uses the oldest member only for the series title, while groups retain the
-    # first member position from the original result stream.
-    first_positions = {id(item): index for index, item in enumerate(results)}
-    grouped.sort(key=lambda item: min(first_positions.get(id(member), 10**9) for member in item["_series_members"]))
-    return grouped
+    for item in members: groups[find(int(item["id"]))].append(item)
+    first_position = {int(item["id"]): i for i, item in enumerate(results)}; grouped = []
+    for group_members in groups.values():
+        group_members.sort(key=lambda item: ((item.get("startDate") or {}).get("year") is None, (item.get("startDate") or {}).get("year") or 9999, int(item["id"])))
+        visible = [item for item in group_members if int(item["id"]) in original_ids]; representative = dict(visible[0] if visible else group_members[0])
+        representative["_series_count"] = len(group_members); representative["_series_members"] = group_members; representative["_bundle_summary"] = _bundle_summary(group_members); grouped.append((min(first_position.get(int(item["id"]), 10**9) for item in group_members), representative))
+    grouped.sort(key=lambda pair: pair[0]); return [item for _, item in grouped]
 
 
 def _relation_data_for(ids):
-    if not ids:
-        return []
-    placeholders = ",".join("?" for _ in ids)
-    relation_types = ",".join(repr(value) for value in SERIES_RELATIONS)
-    connection = get_connection()
-    rows = connection.execute(
-        f"""
-        SELECT source_id, target_id, relation_type
-        FROM work_relations
-        WHERE relation_type IN ({relation_types})
-          AND (source_id IN ({placeholders}) OR target_id IN ({placeholders}))
-        """,
-        [*ids, *ids],
-    ).fetchall()
-    connection.close()
-    return rows
+    if not ids: return []
+    placeholders = ",".join("?" for _ in ids); relation_types = ",".join(repr(value) for value in SERIES_RELATIONS); connection = get_connection()
+    rows = connection.execute(f"SELECT source_id, target_id, relation_type FROM work_relations WHERE relation_type IN ({relation_types}) AND (source_id IN ({placeholders}) OR target_id IN ({placeholders}))", [*ids, *ids]).fetchall(); connection.close(); return rows
 
 
 def sync_library_relations():
-    """Hydrate existing library entries without blocking the UI."""
     rows = list(get_all_library())
-    if len(rows) < 2:
-        return False
-
-    ids = {int(row["id"]) for row in rows}
-    existing = {int(row["source_id"]) for row in _relation_data_for(ids)} | {
-        int(row["target_id"]) for row in _relation_data_for(ids)
-    }
-    missing = ids - existing - _relation_sync_checked_ids
-    changed = False
-
+    if len(rows) < 2: return False
+    ids = {int(row["id"]) for row in rows}; existing_rows = _relation_data_for(ids); existing = {int(row["source_id"]) for row in existing_rows} | {int(row["target_id"]) for row in existing_rows}; missing = ids - existing - _relation_sync_checked_ids; changed = False
     for work_id in missing:
         try:
-            details = get_media_details(work_id)
-            _relation_sync_checked_ids.add(work_id)
-            if details:
-                save_anime(details)
-                changed = True
-        except Exception:
-            continue
+            details = get_media_details(work_id); _relation_sync_checked_ids.add(work_id)
+            if details: save_anime(details); changed = True
+        except Exception: continue
     return changed
 
 
 def get_library_series():
-    """Return library works grouped locally using cached relationships."""
     rows = list(get_all_library())
-    if not rows:
-        return []
-
-    ids = {int(row["id"]) for row in rows}
-    parent = {work_id: work_id for work_id in ids}
-
+    if not rows: return []
+    ids = {int(row["id"]) for row in rows}; parent = {work_id: work_id for work_id in ids}
     def find(work_id):
-        while parent[work_id] != work_id:
-            parent[work_id] = parent[parent[work_id]]
-            work_id = parent[work_id]
+        while parent[work_id] != work_id: parent[work_id] = parent[parent[work_id]]; work_id = parent[work_id]
         return work_id
-
     def union(left, right):
-        left_root, right_root = find(left), find(right)
-        if left_root != right_root:
-            parent[right_root] = left_root
-
+        left, right = find(left), find(right)
+        if left != right: parent[right] = left
     for relation in _relation_data_for(ids):
-        source_id = int(relation["source_id"])
-        target_id = int(relation["target_id"])
-        if source_id in ids and target_id in ids:
-            union(source_id, target_id)
-
+        source_id, target_id = int(relation["source_id"]), int(relation["target_id"])
+        if source_id in ids and target_id in ids: union(source_id, target_id)
     by_title = {}
     for row in rows:
         key = _series_key(row["title"])
-        if not key:
-            continue
-        if key in by_title:
-            union(int(row["id"]), by_title[key])
-        else:
-            by_title[key] = int(row["id"])
-
+        if key: union(int(row["id"]), by_title[key]) if key in by_title else by_title.setdefault(key, int(row["id"]))
     groups = defaultdict(list)
-    for row in rows:
-        groups[find(int(row["id"]))].append(row)
-
+    for row in rows: groups[find(int(row["id"]))].append(row)
     result = []
     for members in groups.values():
-        members.sort(key=lambda row: (row["start_year"] is None, row["start_year"] or 9999, row["id"]))
-        group = dict(members[0])
-        status_values = {row["status"] for row in members}
-        if "Watching" in status_values:
-            group["status"] = "Watching"
-        elif status_values and status_values == {"Completed"}:
-            group["status"] = "Completed"
-        else:
-            group["status"] = "Planning"
-        group["_series_count"] = len(members)
-        group["_series_members"] = members
-        group["_series_episode_total"] = sum(int(row["episodes"] or 0) for row in members)
-        group["_series_progress"] = sum(int(row["progress_episodes"] or 0) for row in members)
-        group["_bundle_summary"] = _bundle_summary(members)
-        result.append(group)
+        members.sort(key=lambda row: (row["start_year"] is None, row["start_year"] or 9999, row["id"])); group = dict(members[0]); statuses = {row["status"] for row in members}
+        group["status"] = "Watching" if "Watching" in statuses else "Completed" if statuses and statuses == {"Completed"} else "Planning"; group["_series_count"] = len(members); group["_series_members"] = members; group["_series_episode_total"] = sum(int(row["episodes"] or 0) for row in members); group["_series_progress"] = sum(int(row["progress_episodes"] or 0) for row in members); group["_bundle_summary"] = _bundle_summary(members); result.append(group)
     return result
