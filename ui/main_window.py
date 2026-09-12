@@ -129,7 +129,6 @@ class MainWindow(QMainWindow):
         self.navigation.show("home")
 
     def apply_settings(self, changed_key=""):
-        """Apply visual settings without forcing a new window geometry or page state."""
         if self._settings_rebuild_pending:
             return
         self._settings_rebuild_pending = True
@@ -137,7 +136,6 @@ class MainWindow(QMainWindow):
 
     def _rebuild_for_settings(self, changed_key):
         self._settings_rebuild_pending = False
-
         current_page = "home"
         if hasattr(self, "navigation"):
             current_widget = self.stack.currentWidget()
@@ -145,11 +143,9 @@ class MainWindow(QMainWindow):
                 if page is current_widget:
                     current_page = name
                     break
-
         was_maximized = self.isMaximized()
         was_fullscreen = self.isFullScreen()
         normal_geometry = self.normalGeometry()
-
         self.setUpdatesEnabled(False)
         try:
             self.navigation_buttons = {}
@@ -157,7 +153,6 @@ class MainWindow(QMainWindow):
             self.navigation.show(current_page)
         finally:
             self.setUpdatesEnabled(True)
-
         if changed_key == "maximized":
             if get("maximized"):
                 self.showMaximized()
@@ -209,7 +204,13 @@ class MainWindow(QMainWindow):
             self.show_work_details(work)
 
     def show_relation(self, relation):
-        work = get_work(relation.get("target_id")) if relation else None
+        if not relation:
+            return
+        try:
+            target_id = relation["target_id"]
+        except (KeyError, TypeError, IndexError):
+            target_id = relation.get("target_id") if hasattr(relation, "get") else None
+        work = get_work(target_id) if target_id else None
         if work:
             self.show_work_details(work)
 
