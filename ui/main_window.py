@@ -216,15 +216,22 @@ class MainWindow(QMainWindow):
 
     def add_to_library(self, anime, button):
         try:
-            save_anime(anime)
-            save_characters(anime["id"], (anime.get("characters") or {}).get("edges"))
-            save_episodes(anime["id"], anime.get("streamingEpisodes"))
-            save_staff(anime["id"], (anime.get("staff") or {}).get("edges"))
+            # Search cards only contain lightweight media fields and therefore do not
+            # include the sequel/prequel graph. Fetch the full record before saving so
+            # series grouping has reliable relation data even when the user never
+            # opens the title's detail page first.
+            from api import get_media_details
+            details = get_media_details(anime["id"])
+
+            save_anime(details)
+            save_characters(anime["id"], (details.get("characters") or {}).get("edges"))
+            save_episodes(anime["id"], details.get("streamingEpisodes"))
+            save_staff(anime["id"], (details.get("staff") or {}).get("edges"))
             add_to_library(anime["id"], "Planning")
             self.library_page.refresh()
             button.setText("Added")
             button.setEnabled(False)
-            self.start_cover_download(anime["id"], (anime.get("coverImage") or {}).get("large"), button)
+            self.start_cover_download(anime["id"], (details.get("coverImage") or {}).get("large"), button)
         except Exception as error:
             button.setText("Error")
             self.search_page.results_title.setText(f"Could not save: {error}")
