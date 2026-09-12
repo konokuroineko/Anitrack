@@ -15,7 +15,6 @@ IMAGE_DIRECTORY = Path("data") / "images" / "works"
 
 class CoverFrame(QFrame):
     """Poster with artwork clipped to the rounded frame and an accent outline."""
-
     def __init__(self, width=None, parent=None):
         super().__init__(parent)
         self._pixmap = QPixmap()
@@ -55,7 +54,6 @@ class WorkCard(QFrame):
     clicked = Signal(object)
     progress_changed = Signal(int)
     add_requested = Signal(object)
-
     _cover_cache = {}
     _cover_failures = set()
 
@@ -68,7 +66,6 @@ class WorkCard(QFrame):
         self._cover_reply = None
         self.setObjectName("posterCard")
         self.setCursor(Qt.PointingHandCursor)
-
         card_width = get("card_size") + 8
         self.setFixedWidth(card_width)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
@@ -84,21 +81,18 @@ class WorkCard(QFrame):
             QPushButton#add {{ background: {COLORS['accent']}; color: #111318; border: none; border-radius: 8px; padding: 7px; font-weight: 800; }}
             QPushButton#add:hover {{ background: {COLORS['accent_hover']}; }}
         """)
-
         root = QVBoxLayout(self)
         root.setContentsMargins(2, 2, 2, 2)
         root.setSpacing(8)
         self.cover = CoverFrame(get("card_size"))
         root.addWidget(self.cover, 0, Qt.AlignHCenter)
         self._load_cover()
-
         title = QLabel(self._title())
         title.setObjectName("title")
         title.setWordWrap(True)
         title.setMaximumHeight(42)
         title.setToolTip(title.text())
         root.addWidget(title)
-
         series_count = self._value("_series_count")
         summary = self._value("_bundle_summary")
         if series_count and int(series_count) > 1:
@@ -108,7 +102,6 @@ class WorkCard(QFrame):
             if member_titles:
                 series_info.setToolTip("Contains: " + ", ".join(member_titles))
             root.addWidget(series_info)
-
         meta_parts = []
         fmt = self._value("format")
         year = self._value("start_year") or (self._value("startDate") or {}).get("year")
@@ -123,13 +116,20 @@ class WorkCard(QFrame):
             meta = QLabel("  ·  ".join(meta_parts))
             meta.setObjectName("meta")
             root.addWidget(meta)
-
         if mode == "search":
             add_button = QPushButton("+  Add to Library")
             add_button.setObjectName("add")
             add_button.setCursor(Qt.PointingHandCursor)
             add_button.clicked.connect(self._add_clicked)
             root.addWidget(add_button)
+
+    def _value(self, key):
+        if hasattr(self.work, "get"):
+            return self.work.get(key)
+        try:
+            return self.work[key]
+        except (KeyError, TypeError, IndexError):
+            return None
 
     def _member_value(self, member, key):
         if hasattr(member, "get"):
@@ -214,14 +214,6 @@ class WorkCard(QFrame):
         self.add_requested.emit(self.work)
         if self.add_callback:
             self.add_callback(self.work, self.sender())
-
-    def _value(self, key):
-        if hasattr(self.work, "get"):
-            return self.work.get(key)
-        try:
-            return self.work[key]
-        except (KeyError, TypeError, IndexError):
-            return None
 
     def _title(self):
         title = self._value("title")
