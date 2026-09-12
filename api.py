@@ -101,7 +101,7 @@ def _media_fields(include_details=False):
                     id
                     name { full }
                     image { large }
-                    voiceActors(perPage: 10) {
+                    voiceActors {
                         id
                         name { full }
                         languageV2
