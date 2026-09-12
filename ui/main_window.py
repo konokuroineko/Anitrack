@@ -87,6 +87,7 @@ class MainWindow(QMainWindow):
         self.search_page = SearchPage(self.add_to_library)
         self.work_detail_page = WorkDetailPage()
         self.settings_page = SettingsPage()
+        self.relationship_page = RelationshipPage()
         pages = {
             "home": HomePage(),
             "collections": self.library_page,
@@ -94,7 +95,7 @@ class MainWindow(QMainWindow):
             "work_detail": self.work_detail_page,
             "person": PersonPage(),
             "character": CharacterPage(),
-            "relationships": RelationshipPage(),
+            "relationships": self.relationship_page,
             "settings": self.settings_page,
         }
         for name, page in pages.items():
@@ -106,10 +107,12 @@ class MainWindow(QMainWindow):
         self._add_nav(side, "⚙", "Settings", "settings")
 
         self.navigation.page_changed.connect(self.update_navigation_state)
+        self.navigation.page_changed.connect(self._page_changed)
         self.library_page.work_selected.connect(self.show_work_details)
         self.search_page.anime_selected.connect(self.show_search_work)
         self.work_detail_page.back_requested.connect(lambda: self.navigation.show("collections"))
         self.work_detail_page.relation_selected.connect(self.show_relation)
+        self.relationship_page.work_selected.connect(self.show_relation)
         self.settings_page.settings_changed.connect(self.apply_settings)
 
         root_layout.addWidget(sidebar)
@@ -127,6 +130,10 @@ class MainWindow(QMainWindow):
         """
         )
         self.navigation.show("home")
+
+    def _page_changed(self, page_name):
+        if page_name == "relationships":
+            self.relationship_page.refresh()
 
     def apply_settings(self, changed_key=""):
         if self._settings_rebuild_pending:
@@ -216,13 +223,8 @@ class MainWindow(QMainWindow):
 
     def add_to_library(self, anime, button):
         try:
-            # Search cards only contain lightweight media fields and therefore do not
-            # include the sequel/prequel graph. Fetch the full record before saving so
-            # series grouping has reliable relation data even when the user never
-            # opens the title's detail page first.
             from api import get_media_details
             details = get_media_details(anime["id"])
-
             save_anime(details)
             save_characters(anime["id"], (details.get("characters") or {}).get("edges"))
             save_episodes(anime["id"], details.get("streamingEpisodes"))
