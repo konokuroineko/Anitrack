@@ -93,15 +93,24 @@ class WorkCard(QFrame):
         title.setMaximumHeight(42)
         title.setToolTip(title.text())
         root.addWidget(title)
+
         series_count = self._value("_series_count")
         summary = self._value("_bundle_summary")
         if series_count and int(series_count) > 1:
-            series_info = QLabel(str(summary or f"{int(series_count)} related entries"))
+            # Keep the visible line compact. It describes the contents without
+            # repeating the series name, which is already shown by the title.
+            summary_text = f"{int(series_count)} entries"
+            if summary:
+                summary_text += " · " + str(summary)
+            series_info = QLabel(summary_text)
             series_info.setObjectName("seriesInfo")
+            series_info.setWordWrap(True)
+            series_info.setMaximumHeight(34)
             member_titles = self._member_titles()
             if member_titles:
                 series_info.setToolTip("Contains: " + ", ".join(member_titles))
             root.addWidget(series_info)
+
         meta_parts = []
         fmt = self._value("format")
         year = self._value("start_year") or (self._value("startDate") or {}).get("year")
