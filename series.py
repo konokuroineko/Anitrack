@@ -18,26 +18,47 @@ def _series_key(title):
     return re.sub(r"[^a-z0-9]+", " ", value).strip()
 
 
+def _member_title(member):
+    title = member.get("title") if hasattr(member, "get") else ""
+    if isinstance(title, dict):
+        return str(title.get("english") or title.get("romaji") or title.get("native") or "Untitled")
+    return str(title or "Untitled")
+
+
+def _member_format(member):
+    value = member.get("format") if hasattr(member, "get") else None
+    return str(value or "OTHER").upper()
+
+
 def _bundle_summary(members):
-    counts = defaultdict(int)
+    groups = defaultdict(list)
+    labels = {
+        "TV": "seasons", "TV_SHORT": "seasons", "OVA": "OVAs", "ONA": "ONAs",
+        "MOVIE": "movies", "SPECIAL": "specials", "MUSIC": "music",
+        "MANGA": "manga", "NOVEL": "novels", "ONE_SHOT": "one-shots",
+    }
     for member in members:
-        fmt = str(member.get("format") or "").upper() if hasattr(member, "get") else str(member["format"] or "").upper()
-        if fmt in {"TV", "TV_SHORT"}:
-            counts["seasons"] += 1
-        elif fmt == "OVA": counts["OVAs"] += 1
-        elif fmt == "ONA": counts["ONAs"] += 1
-        elif fmt == "MOVIE": counts["movies"] += 1
-        elif fmt == "SPECIAL": counts["specials"] += 1
-        elif fmt == "MUSIC": counts["music"] += 1
-        elif fmt: counts[fmt.lower()] += 1
-        else: counts["entries"] += 1
-    order = ["seasons", "OVAs", "ONAs", "movies", "specials", "music"]
-    return " · ".join([f"{counts[key]} {key}" for key in order if counts[key]] + [f"{count} {key}" for key, count in counts.items() if key not in order])
+        fmt = _member_format(member)
+        groups[labels.get(fmt, fmt.lower().replace("_", " "))].append(_member_title(member))
+    order = ["seasons", "OVAs", "ONAs", "movies", "specials", "music", "manga", "novels", "one-shots"]
+    parts = []
+    for label in order:
+        names = groups.pop(label, [])
+        if names:
+            preview = ", ".join(names[:3])
+            if len(names) > 3:
+                preview += f", +{len(names) - 3} more"
+            parts.append(f"{len(names)} {label} ({preview})")
+    for label, names in groups.items():
+        preview = ", ".join(names[:3])
+        if len(names) > 3:
+            preview += f", +{len(names) - 3} more"
+        parts.append(f"{len(names)} {label} ({preview})")
+    return " · ".join(parts)
 
 
 def _title_text(item):
-    title = item.get("title") or {}
-    return title.get("english") or title.get("romaji") or title.get("native") or "" if isinstance(title, dict) else str(title)
+    return _member_title(item)
 
 
 def _search_relation_edges(item):
@@ -46,15 +67,18 @@ def _search_relation_edges(item):
 
 def group_media_results(results):
     """Group search hits and directly related series entries."""
-    if not results: return []
+    if not results:
+        return []
     original_ids = {int(item["id"]) for item in results}
     members = list(results)
     known_ids = set(original_ids)
     for item in results:
         for edge in _search_relation_edges(item):
-            if edge.get("relationType") not in SERIES_RELATIONS: continue
+            if edge.get("relationType") not in SERIES_RELATIONS:
+                continue
             node = edge.get("node") or {}; target_id = node.get("id")
-            if not target_id or int(target_id) in known_ids: continue
+            if not target_id or int(target_id) in known_ids:
+                continue
             members.append({"id": int(target_id), "type": node.get("type"), "format": node.get("format"), "title": node.get("title") or {}, "coverImage": node.get("coverImage") or {}, "_related_only": True})
             known_ids.add(int(target_id))
     ids = {int(item["id"]) for item in members}; parent = {item_id: item_id for item_id in ids}
