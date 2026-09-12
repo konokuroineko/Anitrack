@@ -1,7 +1,7 @@
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal, QEvent, QTimer, QPropertyAnimation, QEasingCurve
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget, QLayout
 
-from database import get_all_library
+from series import get_library_series
 from ui.preferences import get
 from ui.theme import COLORS
 from ui.widgets.work_card import WorkCard
@@ -93,7 +93,7 @@ class LibraryPage(QWidget):
                         if id(card) in target_positions: card.move(target_positions[id(card)])
         return super().eventFilter(watched, event)
 
-    def refresh(self): self._cancel_resize_animation(); self.all_anime=list(get_all_library()); self._apply_filter(); self._apply_sort(); self._populate()
+    def refresh(self): self._cancel_resize_animation(); self.all_anime=get_library_series(); self._apply_filter(); self._apply_sort(); self._populate()
     def _set_filter(self,value):
         self.current_filter=value
         for name,button in self.filter_buttons.items(): button.setChecked(name==value); button.setStyleSheet(self._filter_style(name==value))
