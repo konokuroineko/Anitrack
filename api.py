@@ -65,7 +65,20 @@ def _media_fields(include_details=False):
         format
     """
     if not include_details:
-        return base
+        return base + """
+        relations {
+            edges {
+                relationType
+                node {
+                    id
+                    type
+                    format
+                    title { romaji english native }
+                    coverImage { large }
+                }
+            }
+        }
+        """
 
     return base + """
         description
