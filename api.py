@@ -101,14 +101,14 @@ def _media_fields(include_details=False):
                     id
                     name { full }
                     image { large }
-                    voiceActors {
-                        id
-                        name { full }
-                        languageV2
-                        image { large }
-                    }
                 }
                 role
+                voiceActors {
+                    id
+                    name { full }
+                    language
+                    image { large }
+                }
             }
         }
         staff(perPage: 15) {
