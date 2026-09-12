@@ -1,8 +1,8 @@
 # NekoTrack
 
-A personal anime tracker built with Python, PySide6, SQLite, and the AniList GraphQL API.
+Your personal anime & manga tracker.
 
-NekoTrack is designed to keep your library, progress, metadata, relationships, characters, staff, and locally cached covers in one desktop application.
+Track what you watch and read, explore characters and staff, manage your library, and keep your collection organized — all from a clean desktop app.
 
 > **Status: Beta — v0.1.0-beta.1**
 >
