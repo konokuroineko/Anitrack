@@ -3,12 +3,10 @@ import re
 
 from database import get_all_library, get_connection
 
-# Relations that can connect entries belonging to the same bundle/series.
 SERIES_RELATIONS = {"PREQUEL", "SEQUEL", "PARENT", "SIDE_STORY", "SUMMARY", "FULL_STORY"}
 
 
 def _series_key(title):
-    """Conservative title normalization for season-title variants."""
     value = (title or "").lower().strip()
     value = re.sub(r"\s*[:\-–—]?\s*(the\s+)?final\s+season(?:\s+part\s+\d+)?\s*$", "", value)
     value = re.sub(r"\s*[:\-–—]?\s*(?:season|series)\s*(?:\d+|[ivx]+)(?:\s+part\s+\d+)?\s*$", "", value)
@@ -18,31 +16,10 @@ def _series_key(title):
     return re.sub(r"[^a-z0-9]+", " ", value).strip()
 
 
-def _relation_data_for(ids):
-    if not ids:
-        return []
-
-    placeholders = ",".join("?" for _ in ids)
-    relation_types = ",".join(repr(value) for value in SERIES_RELATIONS)
-    connection = get_connection()
-    rows = connection.execute(
-        f"""
-        SELECT source_id, target_id, relation_type
-        FROM work_relations
-        WHERE relation_type IN ({relation_types})
-          AND (source_id IN ({placeholders}) OR target_id IN ({placeholders}))
-        """,
-        [*ids, *ids],
-    ).fetchall()
-    connection.close()
-    return rows
-
-
 def _bundle_summary(members):
-    """Build a compact human-readable breakdown for a bundle."""
     counts = defaultdict(int)
     for member in members:
-        fmt = str(member["format"] or "").upper()
+        fmt = str(member.get("format") or "").upper() if hasattr(member, "get") else str(member["format"] or "").upper()
         if fmt in {"TV", "TV_SHORT"}:
             counts["seasons"] += 1
         elif fmt == "OVA":
@@ -59,20 +36,89 @@ def _bundle_summary(members):
             counts[fmt.lower()] += 1
         else:
             counts["entries"] += 1
-
     order = ["seasons", "OVAs", "ONAs", "movies", "specials", "music"]
     parts = [f"{counts[key]} {key}" for key in order if counts[key]]
     extras = [f"{count} {key}" for key, count in counts.items() if key not in order]
     return " · ".join(parts + extras)
 
 
-def get_library_series():
-    """Return library works grouped locally using already-cached relations and titles.
+def _search_relation_getter(item):
+    relations = (item.get("relations") or {}).get("edges", [])
+    result = []
+    for edge in relations:
+        target_id = (edge.get("node") or {}).get("id")
+        if target_id:
+            result.append((edge.get("relationType"), int(target_id)))
+    return result
 
-    This function deliberately does no network I/O. Library rendering must remain
-    instant and usable offline; relation syncing belongs to explicit import/search
-    workflows, not application startup.
-    """
+
+def _union_groups(items, relation_getter):
+    ids = {int(item["id"]) for item in items}
+    parent = {item_id: item_id for item_id in ids}
+
+    def find(item_id):
+        while parent[item_id] != item_id:
+            parent[item_id] = parent[parent[item_id]]
+            item_id = parent[item_id]
+        return item_id
+
+    def union(left, right):
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for item in items:
+        for relation_type, target_id in relation_getter(item):
+            if relation_type in SERIES_RELATIONS and target_id in ids:
+                union(int(item["id"]), target_id)
+
+    groups = defaultdict(list)
+    for item in items:
+        groups[find(int(item["id"]))].append(item)
+    return list(groups.values())
+
+
+def group_media_results(results):
+    """Group search results only when AniList explicitly relates them."""
+    if not results:
+        return []
+
+    grouped = []
+    for members in _union_groups(results, _search_relation_getter):
+        members.sort(key=lambda item: (
+            (item.get("startDate") or {}).get("year") is None,
+            (item.get("startDate") or {}).get("year") or 9999,
+            int(item["id"]),
+        ))
+        representative = dict(members[0])
+        representative["_series_count"] = len(members)
+        representative["_series_members"] = members
+        representative["_bundle_summary"] = _bundle_summary(members)
+        grouped.append(representative)
+    return grouped
+
+
+def _relation_data_for(ids):
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    relation_types = ",".join(repr(value) for value in SERIES_RELATIONS)
+    connection = get_connection()
+    rows = connection.execute(
+        f"""
+        SELECT source_id, target_id, relation_type
+        FROM work_relations
+        WHERE relation_type IN ({relation_types})
+          AND (source_id IN ({placeholders}) OR target_id IN ({placeholders}))
+        """,
+        [*ids, *ids],
+    ).fetchall()
+    connection.close()
+    return rows
+
+
+def get_library_series():
+    """Return library works grouped locally using cached relationships."""
     rows = list(get_all_library())
     if not rows:
         return []
@@ -97,7 +143,6 @@ def get_library_series():
         if source_id in ids and target_id in ids:
             union(source_id, target_id)
 
-    # Fall back to obvious season-title variants for entries that pre-date relation storage.
     by_title = {}
     for row in rows:
         key = _series_key(row["title"])
@@ -114,27 +159,19 @@ def get_library_series():
 
     result = []
     for members in groups.values():
-        members.sort(key=lambda row: (
-            row["start_year"] is None,
-            row["start_year"] or 9999,
-            row["id"],
-        ))
-        representative = members[0]
+        members.sort(key=lambda row: (row["start_year"] is None, row["start_year"] or 9999, row["id"]))
+        group = dict(members[0])
         status_values = {row["status"] for row in members}
         if "Watching" in status_values:
-            status = "Watching"
+            group["status"] = "Watching"
         elif status_values and status_values == {"Completed"}:
-            status = "Completed"
+            group["status"] = "Completed"
         else:
-            status = "Planning"
-
-        group = dict(representative)
-        group["status"] = status
+            group["status"] = "Planning"
         group["_series_count"] = len(members)
         group["_series_members"] = members
         group["_series_episode_total"] = sum(int(row["episodes"] or 0) for row in members)
         group["_series_progress"] = sum(int(row["progress_episodes"] or 0) for row in members)
         group["_bundle_summary"] = _bundle_summary(members)
         result.append(group)
-
     return result
