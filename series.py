@@ -1,4 +1,5 @@
 from collections import defaultdict
+import re
 
 from database import get_all_library, get_connection
 
@@ -6,8 +7,19 @@ from database import get_all_library, get_connection
 SEASON_RELATIONS = {"PREQUEL", "SEQUEL"}
 
 
+def _series_key(title):
+    """Conservative title normalization for seasons when relation data is unavailable."""
+    value = (title or "").lower().strip()
+    value = re.sub(r"\s*[:\-–—]?\s*(the\s+)?final\s+season(?:\s+part\s+\d+)?\s*$", "", value)
+    value = re.sub(r"\s*[:\-–—]?\s*(?:season|series)\s*(?:\d+|[ivx]+)(?:\s+part\s+\d+)?\s*$", "", value)
+    value = re.sub(r"\s*[:\-–—]?\s*(?:part|cour)\s*\d+\s*$", "", value)
+    value = re.sub(r"\s+(?:ii|iii|iv|v|vi|2nd|3rd|4th|5th)\s*(?:season)?\s*$", "", value)
+    value = re.sub(r"\s+\d+$", "", value)
+    return re.sub(r"[^a-z0-9]+", " ", value).strip()
+
+
 def get_library_series():
-    """Return library works grouped into connected sequel/prequel series."""
+    """Return library works grouped into connected sequel/prequel seasons."""
     rows = list(get_all_library())
     if not rows:
         return []
@@ -40,6 +52,18 @@ def get_library_series():
         source_id, target_id = int(relation["source_id"]), int(relation["target_id"])
         if source_id in ids and target_id in ids:
             union(source_id, target_id)
+
+    # Also merge obvious season-title variants. This covers older library entries
+    # that were added before relation data was stored.
+    by_title = {}
+    for row in rows:
+        key = _series_key(row["title"])
+        if not key:
+            continue
+        if key in by_title:
+            union(int(row["id"]), by_title[key])
+        else:
+            by_title[key] = int(row["id"])
 
     groups = defaultdict(list)
     for row in rows:
