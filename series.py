@@ -3,8 +3,7 @@ import re
 
 from database import get_all_library, get_connection
 
-# Relations that represent the same continuing series rather than a separate
-# adaptation or unrelated spin-off.
+# Relations that can connect entries belonging to the same bundle/series.
 SERIES_RELATIONS = {"PREQUEL", "SEQUEL", "PARENT", "SIDE_STORY", "SUMMARY", "FULL_STORY"}
 
 
@@ -24,18 +23,47 @@ def _relation_data_for(ids):
         return []
 
     placeholders = ",".join("?" for _ in ids)
+    relation_types = ",".join(repr(value) for value in SERIES_RELATIONS)
     connection = get_connection()
     rows = connection.execute(
         f"""
         SELECT source_id, target_id, relation_type
         FROM work_relations
-        WHERE relation_type IN ({','.join(repr(value) for value in SERIES_RELATIONS)})
+        WHERE relation_type IN ({relation_types})
           AND (source_id IN ({placeholders}) OR target_id IN ({placeholders}))
         """,
         [*ids, *ids],
     ).fetchall()
     connection.close()
     return rows
+
+
+def _bundle_summary(members):
+    """Build a compact human-readable breakdown for a bundle."""
+    counts = defaultdict(int)
+    for member in members:
+        fmt = str(member["format"] or "").upper()
+        if fmt in {"TV", "TV_SHORT"}:
+            counts["seasons"] += 1
+        elif fmt == "OVA":
+            counts["OVAs"] += 1
+        elif fmt == "ONA":
+            counts["ONAs"] += 1
+        elif fmt == "MOVIE":
+            counts["movies"] += 1
+        elif fmt == "SPECIAL":
+            counts["specials"] += 1
+        elif fmt == "MUSIC":
+            counts["music"] += 1
+        elif fmt:
+            counts[fmt.lower()] += 1
+        else:
+            counts["entries"] += 1
+
+    order = ["seasons", "OVAs", "ONAs", "movies", "specials", "music"]
+    parts = [f"{counts[key]} {key}" for key in order if counts[key]]
+    extras = [f"{count} {key}" for key, count in counts.items() if key not in order]
+    return " · ".join(parts + extras)
 
 
 def get_library_series():
@@ -106,6 +134,7 @@ def get_library_series():
         group["_series_members"] = members
         group["_series_episode_total"] = sum(int(row["episodes"] or 0) for row in members)
         group["_series_progress"] = sum(int(row["progress_episodes"] or 0) for row in members)
+        group["_bundle_summary"] = _bundle_summary(members)
         result.append(group)
 
     return result
