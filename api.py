@@ -127,34 +127,55 @@ def search_anime(search, page=1, per_page=20, media_type="ANIME", media_format=N
     """Search AniList for anime, manga, or novel media."""
     if media_type not in {"ANIME", "MANGA"}:
         raise ValueError("media_type must be ANIME or MANGA")
-    if media_format not in {None, "TV", "TV_SHORT", "MOVIE", "SPECIAL", "OVA", "ONA", "MUSIC", "MANGA", "NOVEL", "ONE_SHOT"}:
-        raise ValueError("Invalid media_format")
 
-    query = """
-    query ($search: String, $page: Int, $perPage: Int, $type: MediaType, $format: MediaFormat) {
-        Page(page: $page, perPage: $perPage) {
-            pageInfo {
-                currentPage
-                lastPage
-                hasNextPage
-            }
-            media(search: $search, type: $type, format: $format) {
-                %s
+    if media_type == "ANIME":
+        # Keep anime queries identical to AniList's documented search pattern.
+        # In particular, do not send a nullable format variable for anime.
+        query = """
+        query ($search: String, $page: Int, $perPage: Int) {
+            Page(page: $page, perPage: $perPage) {
+                pageInfo {
+                    currentPage
+                    lastPage
+                    hasNextPage
+                }
+                media(search: $search, type: ANIME) {
+                    %s
+                }
             }
         }
-    }
-    """ % _media_fields(include_details=False)
-
-    data = anilist_request(
-        query,
-        {
+        """ % _media_fields(include_details=False)
+        variables = {
             "search": search,
             "page": page,
             "perPage": per_page,
-            "type": media_type,
+        }
+    else:
+        if media_format not in {None, "MANGA", "NOVEL", "ONE_SHOT"}:
+            raise ValueError("Invalid manga media_format")
+
+        query = """
+        query ($search: String, $page: Int, $perPage: Int, $format: MediaFormat) {
+            Page(page: $page, perPage: $perPage) {
+                pageInfo {
+                    currentPage
+                    lastPage
+                    hasNextPage
+                }
+                media(search: $search, type: MANGA, format: $format) {
+                    %s
+                }
+            }
+        }
+        """ % _media_fields(include_details=False)
+        variables = {
+            "search": search,
+            "page": page,
+            "perPage": per_page,
             "format": media_format,
-        },
-    )
+        }
+
+    data = anilist_request(query, variables)
     return data["Page"]
 
 
