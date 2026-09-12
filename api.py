@@ -1,5 +1,3 @@
-import re
-from collections import defaultdict
 import requests
 import time
 
@@ -8,7 +6,6 @@ ANILIST_URL = "https://graphql.anilist.co"
 
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-SERIES_RELATIONS = {"PREQUEL", "SEQUEL", "SIDE_STORY"}
 
 
 def anilist_request(query, variables=None):
@@ -68,20 +65,7 @@ def _media_fields(include_details=False):
         format
     """
     if not include_details:
-        return base + """
-        relations {
-            edges {
-                relationType
-                node {
-                    id
-                    type
-                    format
-                    title { romaji english native }
-                    coverImage { large }
-                }
-            }
-        }
-        """
+        return base
 
     return base + """
         description
@@ -139,71 +123,7 @@ def _media_fields(include_details=False):
     """
 
 
-def _group_search_results(results):
-    """Bundle only results with explicit sequel/prequel/side-story relations."""
-    if not results:
-        return results
-
-    ids = {int(work["id"]) for work in results}
-    parent = {work_id: work_id for work_id in ids}
-
-    def find(work_id):
-        while parent[work_id] != work_id:
-            parent[work_id] = parent[parent[work_id]]
-            work_id = parent[work_id]
-        return work_id
-
-    def union(left, right):
-        left_root, right_root = find(left), find(right)
-        if left_root != right_root:
-            parent[right_root] = left_root
-
-    for work in results:
-        work_id = int(work["id"])
-        for edge in (work.get("relations") or {}).get("edges", []):
-            if edge.get("relationType") not in SERIES_RELATIONS:
-                continue
-            target = edge.get("node") or {}
-            target_id = target.get("id")
-            if target_id is not None and int(target_id) in ids:
-                union(work_id, int(target_id))
-
-    groups = defaultdict(list)
-    for work in results:
-        groups[find(int(work["id"]))].append(work)
-
-    grouped = []
-    for members in groups.values():
-        members.sort(key=lambda work: (
-            (work.get("startDate") or {}).get("year") is None,
-            (work.get("startDate") or {}).get("year") or 9999,
-            int(work["id"]),
-        ))
-        representative = dict(members[0])
-        representative["_series_count"] = len(members)
-        representative["_series_members"] = members
-
-        kinds = {str(work.get("format") or "").upper() for work in members}
-        bundle_labels = []
-        if any(kind in {"TV", "MOVIE", "ONA", "SPECIAL"} for kind in kinds):
-            bundle_labels.append("seasons")
-        if "OVA" in kinds:
-            bundle_labels.append("OVAs")
-        if "ONA" in kinds:
-            bundle_labels.append("ONAs")
-        if "SPECIAL" in kinds:
-            bundle_labels.append("specials")
-        if "MOVIE" in kinds:
-            bundle_labels.append("movies")
-        if not bundle_labels and len(members) > 1:
-            bundle_labels.append("entries")
-        representative["_bundle_label"] = " + ".join(dict.fromkeys(bundle_labels))
-        grouped.append(representative)
-
-    return grouped
-
-
-def search_anime(search, page=1, per_page=50, media_type="ANIME", media_format=None):
+def search_anime(search, page=1, per_page=20, media_type="ANIME", media_format=None):
     """Search AniList for anime, manga, or novel media."""
     if media_type not in {"ANIME", "MANGA"}:
         raise ValueError("media_type must be ANIME or MANGA")
@@ -254,9 +174,7 @@ def search_anime(search, page=1, per_page=50, media_type="ANIME", media_format=N
         }
 
     data = anilist_request(query, variables)
-    page_data = data["Page"]
-    page_data["media"] = _group_search_results(page_data["media"])
-    return page_data
+    return data["Page"]
 
 
 def get_media_details(media_id):
