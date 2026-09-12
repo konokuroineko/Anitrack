@@ -54,7 +54,7 @@ def _search_relation_getter(item):
 
 
 def group_media_results(results):
-    """Group search results only when AniList explicitly relates them."""
+    """Collapse search results into series using relations and the title heuristic."""
     if not results:
         return []
 
@@ -72,10 +72,30 @@ def group_media_results(results):
         if left_root != right_root:
             parent[right_root] = left_root
 
+    # First use AniList's relationship graph. This catches entries whose
+    # titles differ substantially but are still part of the same series.
     for item in results:
+        item_id = int(item["id"])
         for relation_type, target_id in _search_relation_getter(item):
             if relation_type in SERIES_RELATIONS and target_id in ids:
-                union(int(item["id"]), target_id)
+                union(item_id, target_id)
+
+    # Then use the same safe title normalization as the Library. This is the
+    # important fallback for search: users should not see Season 1, Season 2,
+    # Final Season, Part 1, etc. as separate cards just because AniList's
+    # search page does not return their relation partner in the same page.
+    by_title = {}
+    for item in results:
+        key = _series_key((item.get("title") or {}).get("english")
+                          or (item.get("title") or {}).get("romaji")
+                          or (item.get("title") or {}).get("native"))
+        if not key:
+            continue
+        item_id = int(item["id"])
+        if key in by_title:
+            union(item_id, by_title[key])
+        else:
+            by_title[key] = item_id
 
     groups = defaultdict(list)
     for item in results:
@@ -93,6 +113,12 @@ def group_media_results(results):
         representative["_series_members"] = members
         representative["_bundle_summary"] = _bundle_summary(members)
         grouped.append(representative)
+
+    # Keep AniList's search ordering as much as possible: the representative
+    # uses the oldest member only for the series title, while groups retain the
+    # first member position from the original result stream.
+    first_positions = {id(item): index for index, item in enumerate(results)}
+    grouped.sort(key=lambda item: min(first_positions.get(id(member), 10**9) for member in item["_series_members"]))
     return grouped
 
 
