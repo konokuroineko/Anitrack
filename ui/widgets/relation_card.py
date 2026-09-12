@@ -42,7 +42,7 @@ class RelationCard(QFrame):
         self._load_cover()
 
         text_layout = QVBoxLayout()
-        title = QLabel(self._value("title") or "Unknown work")
+        title = QLabel(self._title())
         title.setStyleSheet(f"color: {COLORS['primary']}; font-weight: 650;")
         title.setWordWrap(True)
         text_layout.addWidget(title)
@@ -50,17 +50,21 @@ class RelationCard(QFrame):
         relation_type = self._value("relation_type") or "OTHER"
         relation_label = RELATION_LABELS.get(relation_type, relation_type.replace("_", " ").title())
         source_title = self._value("source_title")
-        if source_title:
-            connection_label = QLabel(f"{source_title}  →  {relation_label}")
-            connection_label.setWordWrap(True)
-            connection_label.setStyleSheet(f"color: {COLORS['muted']}; font-size: 11px;")
-            text_layout.addWidget(connection_label)
-        else:
-            label = QLabel(relation_label)
-            label.setStyleSheet(muted_label_stylesheet())
-            text_layout.addWidget(label)
+        connection_label = QLabel(
+            f"{source_title or 'Related work'}  →  {relation_label}"
+        )
+        connection_label.setWordWrap(True)
+        connection_label.setStyleSheet(f"color: {COLORS['muted']}; font-size: 11px;")
+        text_layout.addWidget(connection_label)
         text_layout.addStretch()
         layout.addLayout(text_layout)
+
+    def _title(self):
+        title = self._value("title")
+        if title:
+            return str(title)
+        target_id = self._value("target_id")
+        return f"Related work · {target_id}" if target_id else "Related work"
 
     def _load_cover(self):
         image_path = self._value("cover_path")
@@ -74,11 +78,8 @@ class RelationCard(QFrame):
         if not image_url:
             cover_image = self._value("coverImage") or {}
             image_url = cover_image.get("large")
-
         if image_url:
-            self._cover_reply = self._network_manager.get(
-                QNetworkRequest(QUrl(str(image_url)))
-            )
+            self._cover_reply = self._network_manager.get(QNetworkRequest(QUrl(str(image_url))))
             self._cover_reply.finished.connect(self._cover_finished)
 
     def _cover_finished(self):
@@ -86,7 +87,6 @@ class RelationCard(QFrame):
         self._cover_reply = None
         if reply is None or self._is_deleted():
             return
-
         if reply.error() == reply.NetworkError.NoError:
             pixmap = QPixmap()
             if pixmap.loadFromData(reply.readAll()) and not self._is_deleted():
@@ -94,9 +94,7 @@ class RelationCard(QFrame):
         reply.deleteLater()
 
     def _set_cover(self, pixmap):
-        self.image.setPixmap(pixmap.scaled(
-            self.image.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-        ))
+        self.image.setPixmap(pixmap.scaled(self.image.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def _value(self, key):
         if hasattr(self.relation, "get"):
