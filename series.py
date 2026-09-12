@@ -5,6 +5,7 @@ from api import get_media_details
 from database import get_all_library, get_connection, save_anime
 
 SERIES_RELATIONS = {"PREQUEL", "SEQUEL", "PARENT", "SIDE_STORY", "SUMMARY", "FULL_STORY"}
+_relation_sync_checked_ids = set()
 
 
 def _series_key(title):
@@ -115,11 +116,7 @@ def _relation_data_for(ids):
 
 
 def sync_library_relations():
-    """Fill missing relation data for current library entries.
-
-    Network work is deliberately isolated here so Library rendering never blocks
-    application startup or normal local browsing.
-    """
+    """Hydrate existing library entries without blocking the UI."""
     rows = list(get_all_library())
     if len(rows) < 2:
         return False
@@ -128,11 +125,13 @@ def sync_library_relations():
     existing = {int(row["source_id"]) for row in _relation_data_for(ids)} | {
         int(row["target_id"]) for row in _relation_data_for(ids)
     }
-
+    missing = ids - existing - _relation_sync_checked_ids
     changed = False
-    for work_id in ids - existing:
+
+    for work_id in missing:
         try:
             details = get_media_details(work_id)
+            _relation_sync_checked_ids.add(work_id)
             if details:
                 save_anime(details)
                 changed = True
