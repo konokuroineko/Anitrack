@@ -98,6 +98,7 @@ class WorkCard(QFrame):
         if series_count and int(series_count) > 1:
             series_info = QLabel(str(summary or f"{int(series_count)} entries"))
             series_info.setObjectName("seriesInfo")
+            series_info.setToolTip("")
             root.addWidget(series_info)
         meta_parts = []
         fmt = self._value("format")
