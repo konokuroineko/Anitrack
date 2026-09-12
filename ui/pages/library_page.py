@@ -1,10 +1,30 @@
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal, QEvent, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, Signal, QEvent, QTimer, QPropertyAnimation, QEasingCurve, QThread
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget, QLayout
 
+from api import get_media_details
+from database import get_all_library, get_connection, save_anime
 from series import get_library_series
 from ui.preferences import get
 from ui.theme import COLORS
 from ui.widgets.work_card import WorkCard
+
+
+class RelationSyncWorker(QObject):
+    finished = Signal()
+
+    def __init__(self, work_ids):
+        super().__init__()
+        self.work_ids = work_ids
+
+    def run(self):
+        for work_id in self.work_ids:
+            try:
+                details = get_media_details(work_id)
+                if details:
+                    save_anime(details)
+            except Exception:
+                continue
+        self.finished.emit()
 
 
 class FlowLayout(QLayout):
@@ -14,7 +34,6 @@ class FlowLayout(QLayout):
         self._h_spacing = get("card_gap") if h_spacing is None else h_spacing
         self._v_spacing = v_spacing
         self.setContentsMargins(margin, margin, margin, margin)
-
     def addItem(self, item): self._items.append(item)
     def count(self): return len(self._items)
     def itemAt(self, index): return self._items[index] if 0 <= index < len(self._items) else None
@@ -22,18 +41,12 @@ class FlowLayout(QLayout):
     def expandingDirections(self): return Qt.Orientations(Qt.Orientation(0))
     def hasHeightForWidth(self): return True
     def heightForWidth(self, width): return self._do_layout(QRect(0, 0, width, 0), True)
-
-    def setGeometry(self, rect):
-        super().setGeometry(rect); self._do_layout(rect, False)
-
+    def setGeometry(self, rect): super().setGeometry(rect); self._do_layout(rect, False)
     def sizeHint(self): return self.minimumSize()
-
     def minimumSize(self):
-        size = QSize()
-        margins = self.contentsMargins()
+        size = QSize(); margins = self.contentsMargins()
         for item in self._items: size = size.expandedTo(item.minimumSize())
         return size + QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
-
     def positions_for_rect(self, rect):
         margins = self.contentsMargins(); effective = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
         x, y, line_height = effective.x(), effective.y(), 0; positions = {}
@@ -45,7 +58,6 @@ class FlowLayout(QLayout):
                 x = effective.x(); y += line_height + self._v_spacing; next_x = x + widget_size.width(); line_height = 0
             positions[item] = QRect(QPoint(x, y), widget_size); x = next_x + self._h_spacing; line_height = max(line_height, widget_size.height())
         return positions
-
     def _do_layout(self, rect, test_only):
         positions = self.positions_for_rect(rect)
         if not test_only:
@@ -58,7 +70,9 @@ class LibraryPage(QWidget):
     work_selected = Signal(object)
 
     def __init__(self):
-        super().__init__(); self.all_anime = []; self.anime_list = []; self.current_filter = "All"; self.current_sort = "Recently Added"; self._cards = []; self._empty_label = None
+        super().__init__()
+        self.all_anime = []; self.anime_list = []; self.current_filter = "All"; self.current_sort = "Recently Added"; self._cards = []; self._empty_label = None
+        self._sync_thread = None; self._sync_worker = None; self._sync_done_ids = set()
         self._resize_timer = QTimer(self); self._resize_timer.setSingleShot(True); self._resize_timer.setInterval(140); self._resize_timer.timeout.connect(self._finish_resize)
         self._resize_layout_was_enabled = True; self._last_target_positions = None; self._animations = []; self._build_shell(); self.refresh()
 
@@ -93,7 +107,25 @@ class LibraryPage(QWidget):
                         if id(card) in target_positions: card.move(target_positions[id(card)])
         return super().eventFilter(watched, event)
 
-    def refresh(self): self._cancel_resize_animation(); self.all_anime=get_library_series(); self._apply_filter(); self._apply_sort(); self._populate()
+    def refresh(self):
+        self._cancel_resize_animation(); self.all_anime = get_library_series(); self._apply_filter(); self._apply_sort(); self._populate(); self._start_relation_sync()
+
+    def _start_relation_sync(self):
+        if self._sync_thread is not None and self._sync_thread.isRunning(): return
+        connection = get_connection()
+        ids = [int(row["id"]) for row in connection.execute("SELECT DISTINCT works.id FROM works JOIN user_library ON user_library.work_id=works.id").fetchall()]
+        connected = {int(row["id"]) for row in connection.execute("SELECT DISTINCT source_id AS id FROM work_relations UNION SELECT DISTINCT target_id AS id FROM work_relations").fetchall()}
+        connection.close()
+        missing = [work_id for work_id in ids if work_id not in connected and work_id not in self._sync_done_ids]
+        if not missing: return
+        self._sync_thread = QThread(self); self._sync_worker = RelationSyncWorker(missing); self._sync_worker.moveToThread(self._sync_thread)
+        self._sync_thread.started.connect(self._sync_worker.run); self._sync_worker.finished.connect(self._relation_sync_finished); self._sync_worker.finished.connect(self._sync_thread.quit); self._sync_thread.finished.connect(self._sync_worker.deleteLater); self._sync_thread.finished.connect(self._sync_thread.deleteLater); self._sync_thread.start()
+
+    def _relation_sync_finished(self):
+        if self._sync_worker is not None: self._sync_done_ids.update(self._sync_worker.work_ids)
+        self._sync_thread = None; self._sync_worker = None
+        self.refresh()
+
     def _set_filter(self,value):
         self.current_filter=value
         for name,button in self.filter_buttons.items(): button.setChecked(name==value); button.setStyleSheet(self._filter_style(name==value))
