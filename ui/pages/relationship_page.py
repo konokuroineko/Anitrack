@@ -1,9 +1,10 @@
 from collections import OrderedDict
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QObject, QThread, Qt, Signal
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
-from database import get_all_relation_cards, get_relation_type_counts
+from api import get_media_details
+from database import get_all_relation_cards, get_library_relation_sync_ids, get_relation_type_counts, save_anime
 from ui.theme import COLORS, SPACING
 from ui.widgets.relation_card import RelationCard
 
@@ -26,13 +27,33 @@ RELATION_LABELS = {
 }
 
 
+class RelationSyncWorker(QObject):
+    finished = Signal()
+
+    def __init__(self, work_ids):
+        super().__init__()
+        self.work_ids = work_ids
+
+    def run(self):
+        for work_id in self.work_ids:
+            try:
+                details = get_media_details(work_id)
+                if details:
+                    save_anime(details)
+            except Exception:
+                continue
+        self.finished.emit()
+
+
 class RelationshipPage(QWidget):
     work_selected = Signal(object)
 
     def __init__(self):
         super().__init__()
-        self._loaded = False
         self._all_relations = []
+        self._sync_thread = None
+        self._sync_worker = None
+        self._sync_started = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(SPACING["xxl"], SPACING["xxl"], SPACING["xxl"], SPACING["xxl"])
@@ -86,7 +107,7 @@ class RelationshipPage(QWidget):
             item = self.content.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        label = QLabel("No stored relations yet. Open a title from Search and its AniList relations will be saved automatically.")
+        label = QLabel("No stored relations yet. Open a title from Search or let Relations sync your library.")
         label.setWordWrap(True)
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet(f"color:{COLORS['muted']};font-size:14px;padding:80px;")
@@ -107,7 +128,6 @@ class RelationshipPage(QWidget):
         index = self.filter_box.findData(current)
         self.filter_box.setCurrentIndex(index if index >= 0 else 0)
         self.filter_box.blockSignals(False)
-        self._loaded = True
         self._populate()
 
     def _populate(self):
@@ -142,20 +162,47 @@ class RelationshipPage(QWidget):
             heading.setStyleSheet(f"font-size:16px;font-weight:800;color:{COLORS['primary']};padding:10px 2px 2px;")
             self.content.addWidget(heading)
 
-            grid = QVBoxLayout()
+            wrapper = QWidget()
+            grid = QVBoxLayout(wrapper)
+            grid.setContentsMargins(0, 0, 0, 0)
             grid.setSpacing(8)
             for row in relation_rows:
-                card_data = dict(row)
-                card = RelationCard(card_data)
-                card.setToolTip(f"{row['source_title'] or 'Unknown'} → {RELATION_LABELS.get(relation_type, relation_type.replace('_', ' ').title())} → {row['title'] or 'Unknown'}")
+                card = RelationCard(dict(row))
+                card.setToolTip(
+                    f"{row['source_title'] or 'Unknown'} → "
+                    f"{RELATION_LABELS.get(relation_type, relation_type.replace('_', ' ').title())} → "
+                    f"{row['title'] or 'Unknown'}"
+                )
                 card.clicked.connect(self.work_selected)
                 grid.addWidget(card)
-            wrapper = QWidget()
-            wrapper.setLayout(grid)
             self.content.addWidget(wrapper)
 
         self.content.addStretch()
 
+    def _start_relation_sync(self):
+        if self._sync_started:
+            return
+        self._sync_started = True
+        work_ids = get_library_relation_sync_ids()
+        if not work_ids:
+            return
+        self.count_label.setText(f"Syncing relations for {len(work_ids)} library title{'s' if len(work_ids) != 1 else ''}…")
+        self._sync_thread = QThread(self)
+        self._sync_worker = RelationSyncWorker(work_ids)
+        self._sync_worker.moveToThread(self._sync_thread)
+        self._sync_thread.started.connect(self._sync_worker.run)
+        self._sync_worker.finished.connect(self._relation_sync_finished)
+        self._sync_worker.finished.connect(self._sync_thread.quit)
+        self._sync_thread.finished.connect(self._sync_worker.deleteLater)
+        self._sync_thread.finished.connect(self._sync_thread.deleteLater)
+        self._sync_thread.start()
+
+    def _relation_sync_finished(self):
+        self._sync_thread = None
+        self._sync_worker = None
+        self.refresh()
+
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh()
+        self._start_relation_sync()
