@@ -24,9 +24,7 @@ def anilist_request(query, variables=None):
             if response.status_code >= 400:
                 errors = data.get("errors") or []
                 message = errors[0].get("message") if errors else response.reason
-                raise Exception(
-                    f"AniList request failed ({response.status_code}): {message}"
-                )
+                raise Exception(f"AniList request failed ({response.status_code}): {message}")
 
             if "errors" in data:
                 raise Exception(data["errors"][0]["message"])
@@ -41,10 +39,7 @@ def anilist_request(query, variables=None):
             last_error = error
             if attempt < MAX_RETRIES - 1:
                 wait_time = RETRY_DELAY * (2 ** attempt)
-                print(
-                    f"Network error (attempt {attempt + 1}/{MAX_RETRIES}): "
-                    f"{error}. Retrying in {wait_time}s..."
-                )
+                print(f"Network error (attempt {attempt + 1}/{MAX_RETRIES}): {error}. Retrying in {wait_time}s...")
                 time.sleep(wait_time)
             else:
                 print(f"Failed after {MAX_RETRIES} attempts: {error}")
@@ -52,8 +47,7 @@ def anilist_request(query, variables=None):
             raise error
 
     raise Exception(
-        f"Network error after {MAX_RETRIES} attempts. "
-        f"Please check your internet connection and try again. "
+        f"Network error after {MAX_RETRIES} attempts. Please check your internet connection and try again. "
         f"(Last error: {str(last_error)[:100]})"
     )
 
@@ -129,25 +123,27 @@ def _media_fields(include_details=False):
     """
 
 
-def search_anime(search, page=1, per_page=20, media_type="ANIME"):
-    """Search AniList for anime or manga-based media."""
+def search_anime(search, page=1, per_page=20, media_type="ANIME", media_format=None):
+    """Search AniList for anime, manga, or novel media."""
     if media_type not in {"ANIME", "MANGA"}:
         raise ValueError("media_type must be ANIME or MANGA")
+    if media_format not in {None, "TV", "TV_SHORT", "MOVIE", "SPECIAL", "OVA", "ONA", "MUSIC", "MANGA", "NOVEL", "ONE_SHOT"}:
+        raise ValueError("Invalid media_format")
 
-    query = f"""
-    query ($search: String, $page: Int, $perPage: Int, $type: MediaType) {{
-        Page(page: $page, perPage: $perPage) {{
-            pageInfo {{
+    query = """
+    query ($search: String, $page: Int, $perPage: Int, $type: MediaType, $format: MediaFormat) {
+        Page(page: $page, perPage: $perPage) {
+            pageInfo {
                 currentPage
                 lastPage
                 hasNextPage
-            }}
-            media(search: $search, type: $type) {{
-                {_media_fields(include_details=False)}
-            }}
-        }}
-    }}
-    """
+            }
+            media(search: $search, type: $type, format: $format) {
+                %s
+            }
+        }
+    }
+    """ % _media_fields(include_details=False)
 
     data = anilist_request(
         query,
@@ -156,6 +152,7 @@ def search_anime(search, page=1, per_page=20, media_type="ANIME"):
             "page": page,
             "perPage": per_page,
             "type": media_type,
+            "format": media_format,
         },
     )
     return data["Page"]
@@ -163,18 +160,18 @@ def search_anime(search, page=1, per_page=20, media_type="ANIME"):
 
 def get_media_details(media_id):
     """Fetch the complete media record needed by detail/import workflows."""
-    query = f"""
-    query ($id: Int) {{
-        Media(id: $id) {{
-            {_media_fields(include_details=True)}
-            airingSchedule(perPage: 50) {{
-                nodes {{
+    query = """
+    query ($id: Int) {
+        Media(id: $id) {
+            %s
+            airingSchedule(perPage: 50) {
+                nodes {
                     airingAt
                     episode
-                }}
-            }}
-        }}
-    }}
-    """
+                }
+            }
+        }
+    }
+    """ % _media_fields(include_details=True)
     data = anilist_request(query, {"id": media_id})
     return data["Media"]
