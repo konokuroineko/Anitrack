@@ -8,7 +8,7 @@ ANILIST_URL = "https://graphql.anilist.co"
 
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-SERIES_RELATIONS = {"PREQUEL", "SEQUEL", "PARENT", "SIDE_STORY", "SUMMARY", "FULL_STORY"}
+SERIES_RELATIONS = {"PREQUEL", "SEQUEL", "SIDE_STORY"}
 
 
 def anilist_request(query, variables=None):
@@ -139,18 +139,8 @@ def _media_fields(include_details=False):
     """
 
 
-def _season_key(title):
-    value = (title or "").lower().strip()
-    value = re.sub(r"\s*[:\-–—]?\s*(the\s+)?final\s+season(?:\s+part\s+\d+)?\s*$", "", value)
-    value = re.sub(r"\s*[:\-–—]?\s*(?:season|series)\s*(?:\d+|[ivx]+)(?:\s+part\s+\d+)?\s*$", "", value)
-    value = re.sub(r"\s*[:\-–—]?\s*(?:part|cour)\s*\d+\s*$", "", value)
-    value = re.sub(r"\s+(?:ii|iii|iv|v|vi|2nd|3rd|4th|5th)\s*(?:season)?\s*$", "", value)
-    value = re.sub(r"\s+\d+$", "", value)
-    return re.sub(r"[^a-z0-9]+", " ", value).strip()
-
-
 def _group_search_results(results):
-    """Collapse related seasons and OVAs into a single media result."""
+    """Bundle only results with explicit sequel/prequel/side-story relations."""
     if not results:
         return results
 
@@ -169,26 +159,14 @@ def _group_search_results(results):
             parent[right_root] = left_root
 
     for work in results:
+        work_id = int(work["id"])
         for edge in (work.get("relations") or {}).get("edges", []):
             if edge.get("relationType") not in SERIES_RELATIONS:
                 continue
             target = edge.get("node") or {}
             target_id = target.get("id")
-            if target_id in ids:
-                union(int(work["id"]), int(target_id))
-
-    # Catch straightforward season-title variants even when AniList did not return
-    # their relation edge in the same search page.
-    by_title = {}
-    for work in results:
-        title = work.get("title") or {}
-        text = title.get("english") or title.get("romaji") or title.get("native") or ""
-        key = _season_key(text)
-        if key:
-            if key in by_title:
-                union(int(work["id"]), by_title[key])
-            else:
-                by_title[key] = int(work["id"])
+            if target_id is not None and int(target_id) in ids:
+                union(work_id, int(target_id))
 
     groups = defaultdict(list)
     for work in results:
@@ -204,6 +182,22 @@ def _group_search_results(results):
         representative = dict(members[0])
         representative["_series_count"] = len(members)
         representative["_series_members"] = members
+
+        kinds = {str(work.get("format") or "").upper() for work in members}
+        bundle_labels = []
+        if any(kind in {"TV", "MOVIE", "ONA", "SPECIAL"} for kind in kinds):
+            bundle_labels.append("seasons")
+        if "OVA" in kinds:
+            bundle_labels.append("OVAs")
+        if "ONA" in kinds:
+            bundle_labels.append("ONAs")
+        if "SPECIAL" in kinds:
+            bundle_labels.append("specials")
+        if "MOVIE" in kinds:
+            bundle_labels.append("movies")
+        if not bundle_labels and len(members) > 1:
+            bundle_labels.append("entries")
+        representative["_bundle_label"] = " + ".join(dict.fromkeys(bundle_labels))
         grouped.append(representative)
 
     return grouped
