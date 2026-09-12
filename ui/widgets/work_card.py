@@ -74,17 +74,13 @@ class WorkCard(QFrame):
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         hover_css = f"background: {COLORS['surface_hover']}; border-color: {COLORS['accent']};" if get("hover_highlight") else ""
         self.setStyleSheet(f"""
-            QFrame#posterCard {{
-                background: transparent;
-                border: 2px solid transparent;
-                border-radius: {get('corner_radius') + 2}px;
-            }}
+            QFrame#posterCard {{ background: transparent; border: 2px solid transparent; border-radius: {get('corner_radius') + 2}px; }}
             QFrame#posterCard:hover {{ {hover_css} }}
             QLabel {{ background: transparent; border: none; }}
             QLabel#title {{ color: {COLORS['primary']}; font-size: {get('font_size')}px; font-weight: 760; }}
             QFrame#posterCard:hover QLabel#title {{ color: {COLORS['accent_hover']}; }}
             QLabel#meta {{ color: {COLORS['muted']}; font-size: 11px; }}
-            QLabel#bundle {{ color: {COLORS['accent_hover']}; font-size: 10px; font-weight: 800; }}
+            QLabel#seriesInfo {{ color: {COLORS['accent_hover']}; font-size: 10px; font-weight: 800; }}
             QPushButton#add {{ background: {COLORS['accent']}; color: #111318; border: none; border-radius: 8px; padding: 7px; font-weight: 800; }}
             QPushButton#add:hover {{ background: {COLORS['accent_hover']}; }}
         """)
@@ -104,12 +100,14 @@ class WorkCard(QFrame):
         root.addWidget(title)
 
         series_count = self._value("_series_count")
-        if series_count and int(series_count) > 1:
-            summary = self._value("_bundle_summary") or f"{int(series_count)} entries"
-            bundle = QLabel(f"Bundle · {summary}")
-            bundle.setObjectName("bundle")
-            bundle.setToolTip("This bundle contains: " + ", ".join(self._member_titles()))
-            root.addWidget(bundle)
+        summary = self._value("_bundle_summary")
+        if series_count and int(series_count) > 1 and summary:
+            series_info = QLabel(summary)
+            series_info.setObjectName("seriesInfo")
+            member_titles = self._member_titles()
+            if member_titles:
+                series_info.setToolTip("Contains: " + ", ".join(member_titles))
+            root.addWidget(series_info)
 
         meta_parts = []
         fmt = self._value("format")
