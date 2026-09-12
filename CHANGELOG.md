@@ -2,6 +2,18 @@
 
 All notable changes to NekoTrack are documented here.
 
+## [0.1.0-beta.2] - 2026-09-13
+
+### Fixed
+- Fixed the AniList voice-actor GraphQL query by removing the unsupported pagination argument from `Character.voiceActors`.
+- Voice-actor records can now be retrieved correctly when AniList returns them for a character.
+
+### Beta notes
+- AniList API access is required for online search and metadata retrieval.
+- AniList service availability can temporarily affect online features.
+- Windows packaging/installer support is not included yet; run NekoTrack from Python for this beta.
+- Some planned tracking and metadata features remain under active development.
+
 ## [0.1.0-beta.1] - 2026-09-12
 
 ### Added
