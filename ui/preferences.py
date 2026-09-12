@@ -19,27 +19,54 @@ _DEFAULTS = {
     "maximized": True,
 }
 
+_ORGANIZATION = "NekoTrack"
+_APPLICATION = "NekoTrack"
+_LEGACY_ORGANIZATION = "AniTrack"
+_LEGACY_APPLICATION = "AniTrack"
+
 
 def settings():
-    return QSettings("NekoTrack", "NekoTrack")
+    """Return NekoTrack's settings store, migrating the old AniTrack store once."""
+    current = QSettings(_ORGANIZATION, _APPLICATION)
+    legacy = QSettings(_LEGACY_ORGANIZATION, _LEGACY_APPLICATION)
+
+    # The app was renamed from AniTrack to NekoTrack. Preserve existing user
+    # preferences instead of treating the new settings namespace as a reset.
+    if not current.allKeys() and legacy.allKeys():
+        for key in legacy.allKeys():
+            current.setValue(key, legacy.value(key))
+        current.sync()
+
+    return current
 
 
 def get(key):
     default = _DEFAULTS[key]
     value = settings().value(key, default)
+
     if isinstance(default, bool):
         if isinstance(value, str):
             return value.lower() in ("1", "true", "yes", "on")
         return bool(value)
+
     if isinstance(default, int):
         try:
-            return max(1, int(value)) if key == "font_size" else int(value)
+            value = int(value)
         except (TypeError, ValueError):
             return default
+        if key == "font_size":
+            return max(8, value)
+        return value
+
     return value
 
 
 def set_value(key, value):
+    if key == "font_size":
+        try:
+            value = max(8, int(value))
+        except (TypeError, ValueError):
+            value = _DEFAULTS["font_size"]
     settings().setValue(key, value)
     settings().sync()
 
