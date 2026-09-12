@@ -65,7 +65,20 @@ def _media_fields(include_details=False):
         format
     """
     if not include_details:
-        return base
+        return base + """
+        relations {
+            edges {
+                relationType
+                node {
+                    id
+                    type
+                    format
+                    title { romaji english native }
+                    coverImage { large }
+                }
+            }
+        }
+        """
 
     return base + """
         description
@@ -123,14 +136,12 @@ def _media_fields(include_details=False):
     """
 
 
-def search_anime(search, page=1, per_page=20, media_type="ANIME", media_format=None):
+def search_anime(search, page=1, per_page=50, media_type="ANIME", media_format=None):
     """Search AniList for anime, manga, or novel media."""
     if media_type not in {"ANIME", "MANGA"}:
         raise ValueError("media_type must be ANIME or MANGA")
 
     if media_type == "ANIME":
-        # Keep anime queries identical to AniList's documented search pattern.
-        # In particular, do not send a nullable format variable for anime.
         query = """
         query ($search: String, $page: Int, $perPage: Int) {
             Page(page: $page, perPage: $perPage) {
