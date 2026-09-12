@@ -1,7 +1,8 @@
 from collections import defaultdict
 import re
 
-from database import get_all_library, get_connection
+from api import get_media_details
+from database import get_all_library, get_connection, save_anime
 
 SERIES_RELATIONS = {"PREQUEL", "SEQUEL", "PARENT", "SIDE_STORY", "SUMMARY", "FULL_STORY"}
 
@@ -43,17 +44,20 @@ def _bundle_summary(members):
 
 
 def _search_relation_getter(item):
-    relations = (item.get("relations") or {}).get("edges", [])
     result = []
-    for edge in relations:
+    for edge in (item.get("relations") or {}).get("edges", []):
         target_id = (edge.get("node") or {}).get("id")
         if target_id:
             result.append((edge.get("relationType"), int(target_id)))
     return result
 
 
-def _union_groups(items, relation_getter):
-    ids = {int(item["id"]) for item in items}
+def group_media_results(results):
+    """Group search results only when AniList explicitly relates them."""
+    if not results:
+        return []
+
+    ids = {int(item["id"]) for item in results}
     parent = {item_id: item_id for item_id in ids}
 
     def find(item_id):
@@ -67,24 +71,17 @@ def _union_groups(items, relation_getter):
         if left_root != right_root:
             parent[right_root] = left_root
 
-    for item in items:
-        for relation_type, target_id in relation_getter(item):
+    for item in results:
+        for relation_type, target_id in _search_relation_getter(item):
             if relation_type in SERIES_RELATIONS and target_id in ids:
                 union(int(item["id"]), target_id)
 
     groups = defaultdict(list)
-    for item in items:
+    for item in results:
         groups[find(int(item["id"]))].append(item)
-    return list(groups.values())
-
-
-def group_media_results(results):
-    """Group search results only when AniList explicitly relates them."""
-    if not results:
-        return []
 
     grouped = []
-    for members in _union_groups(results, _search_relation_getter):
+    for members in groups.values():
         members.sort(key=lambda item: (
             (item.get("startDate") or {}).get("year") is None,
             (item.get("startDate") or {}).get("year") or 9999,
@@ -115,6 +112,33 @@ def _relation_data_for(ids):
     ).fetchall()
     connection.close()
     return rows
+
+
+def sync_library_relations():
+    """Fill missing relation data for current library entries.
+
+    Network work is deliberately isolated here so Library rendering never blocks
+    application startup or normal local browsing.
+    """
+    rows = list(get_all_library())
+    if len(rows) < 2:
+        return False
+
+    ids = {int(row["id"]) for row in rows}
+    existing = {int(row["source_id"]) for row in _relation_data_for(ids)} | {
+        int(row["target_id"]) for row in _relation_data_for(ids)
+    }
+
+    changed = False
+    for work_id in ids - existing:
+        try:
+            details = get_media_details(work_id)
+            if details:
+                save_anime(details)
+                changed = True
+        except Exception:
+            continue
+    return changed
 
 
 def get_library_series():
