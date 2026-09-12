@@ -101,8 +101,8 @@ class WorkCard(QFrame):
 
         series_count = self._value("_series_count")
         summary = self._value("_bundle_summary")
-        if series_count and int(series_count) > 1 and summary:
-            series_info = QLabel(summary)
+        if series_count and int(series_count) > 1:
+            series_info = QLabel(str(summary or f"{int(series_count)} related entries"))
             series_info.setObjectName("seriesInfo")
             member_titles = self._member_titles()
             if member_titles:
@@ -131,67 +131,116 @@ class WorkCard(QFrame):
             add_button.clicked.connect(self._add_clicked)
             root.addWidget(add_button)
 
+    def _member_value(self, member, key):
+        if hasattr(member, "get"):
+            return member.get(key)
+        try:
+            return member[key]
+        except (KeyError, TypeError, IndexError):
+            return None
+
     def _member_titles(self):
-        members = self._value("_series_members") or []
         titles = []
-        for member in members:
-            title = member.get("title") if hasattr(member, "get") else None
+        for member in self._value("_series_members") or []:
+            title = self._member_value(member, "title")
             if isinstance(title, dict):
                 title = title.get("english") or title.get("romaji") or title.get("native")
             if title:
                 titles.append(str(title))
         return titles
 
+    def _fallback_member(self):
+        for member in self._value("_series_members") or []:
+            title = self._member_value(member, "title")
+            if isinstance(title, dict):
+                title = title.get("english") or title.get("romaji") or title.get("native")
+            if title:
+                return member
+        return None
+
     def _load_cover(self):
         cover_path = self._value("cover_path")
+        fallback = self._fallback_member()
+        if not cover_path and fallback:
+            cover_path = self._member_value(fallback, "cover_path")
         if cover_path:
             pixmap = QPixmap(str(cover_path))
             if not pixmap.isNull():
                 self.cover.set_pixmap(pixmap)
                 return
         cover_url = self._value("cover_url") or (self._value("coverImage") or {}).get("large")
+        if not cover_url and fallback:
+            cover_url = self._member_value(fallback, "cover_url")
+            if not cover_url:
+                image = self._member_value(fallback, "coverImage")
+                cover_url = image.get("large") if isinstance(image, dict) else None
         if not cover_url:
             return
         cover_url = str(cover_url)
         cached = self._cover_cache.get(cover_url)
         if cached is not None and not cached.isNull():
-            self.cover.set_pixmap(cached); return
-        if cover_url in self._cover_failures: return
+            self.cover.set_pixmap(cached)
+            return
+        if cover_url in self._cover_failures:
+            return
         self._cover_reply = self._network_manager.get(QNetworkRequest(QUrl(cover_url)))
         self._cover_reply.finished.connect(lambda: self._cover_finished(cover_url))
 
     def _cover_finished(self, cover_url):
-        reply = self._cover_reply; self._cover_reply = None
+        reply = self._cover_reply
+        self._cover_reply = None
         if reply is not None and reply.error() == reply.NetworkError.NoError:
             pixmap = QPixmap()
             if pixmap.loadFromData(reply.readAll()):
-                self._cover_cache[cover_url] = pixmap; self.cover.set_pixmap(pixmap)
+                self._cover_cache[cover_url] = pixmap
+                self.cover.set_pixmap(pixmap)
                 work_id = self._value("id")
                 if work_id:
                     try:
                         IMAGE_DIRECTORY.mkdir(parents=True, exist_ok=True)
                         path = IMAGE_DIRECTORY / f"{work_id}.jpg"
-                        if pixmap.save(str(path), "JPG", 85): save_cover_path(work_id, str(path))
-                    except Exception: pass
-            else: self._cover_failures.add(cover_url)
-        else: self._cover_failures.add(cover_url)
-        if reply is not None: reply.deleteLater()
+                        if pixmap.save(str(path), "JPG", 85):
+                            save_cover_path(work_id, str(path))
+                    except Exception:
+                        pass
+            else:
+                self._cover_failures.add(cover_url)
+        else:
+            self._cover_failures.add(cover_url)
+        if reply is not None:
+            reply.deleteLater()
 
     def _add_clicked(self):
         self.add_requested.emit(self.work)
-        if self.add_callback: self.add_callback(self.work, self.sender())
+        if self.add_callback:
+            self.add_callback(self.work, self.sender())
 
     def _value(self, key):
-        if hasattr(self.work, "get"): return self.work.get(key)
-        try: return self.work[key]
-        except (KeyError, TypeError, IndexError): return None
+        if hasattr(self.work, "get"):
+            return self.work.get(key)
+        try:
+            return self.work[key]
+        except (KeyError, TypeError, IndexError):
+            return None
 
     def _title(self):
         title = self._value("title")
-        if isinstance(title, dict): return title.get("english") or title.get("romaji") or title.get("native") or "Untitled"
-        return title or "Untitled"
+        if isinstance(title, dict):
+            title = title.get("english") or title.get("romaji") or title.get("native")
+        if title:
+            return str(title)
+        fallback = self._fallback_member()
+        if fallback is not None:
+            fallback_title = self._member_value(fallback, "title")
+            if isinstance(fallback_title, dict):
+                fallback_title = fallback_title.get("english") or fallback_title.get("romaji") or fallback_title.get("native")
+            if fallback_title:
+                return str(fallback_title)
+        work_id = self._value("id")
+        return f"Untitled · {work_id}" if work_id else "Untitled"
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.clicked.emit(self.work); return
+            self.clicked.emit(self.work)
+            return
         super().mousePressEvent(event)
