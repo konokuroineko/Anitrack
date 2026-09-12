@@ -1,24 +1,161 @@
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
+from collections import OrderedDict
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+
+from database import get_all_relation_cards, get_relation_type_counts
 from ui.theme import COLORS, SPACING
+from ui.widgets.relation_card import RelationCard
+
+
+RELATION_LABELS = {
+    "ADAPTATION": "Adaptations",
+    "SOURCE": "Source material",
+    "PREQUEL": "Prequels",
+    "SEQUEL": "Sequels",
+    "PARENT": "Parent / origin",
+    "SIDE_STORY": "Side stories",
+    "CHARACTER": "Shared characters",
+    "SUMMARY": "Summaries",
+    "ALTERNATIVE": "Alternative versions",
+    "SPIN_OFF": "Spin-offs",
+    "OTHER": "Other connections",
+    "SAME_UNIVERSE": "Same universe",
+    "COMPILATION": "Compilations",
+    "CONTAINS": "Contains",
+}
 
 
 class RelationshipPage(QWidget):
+    work_selected = Signal(object)
+
     def __init__(self):
         super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(SPACING["xxl"], SPACING["xxl"], SPACING["xxl"], SPACING["xxl"])
-        layout.setSpacing(SPACING["lg"])
+        self._loaded = False
+        self._all_relations = []
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(SPACING["xxl"], SPACING["xxl"], SPACING["xxl"], SPACING["xxl"])
+        root.setSpacing(SPACING["lg"])
+
+        header = QHBoxLayout()
+        title_box = QVBoxLayout()
+        title_box.setSpacing(2)
         title = QLabel("Relations")
         title.setStyleSheet(f"font-size: 30px; font-weight: 800; color: {COLORS['primary']};")
-        layout.addWidget(title)
-        panel = QFrame()
-        panel.setStyleSheet(f"QFrame {{ background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: 16px; }}")
-        box = QVBoxLayout(panel)
-        message = QLabel("Franchise and related-work navigation is available from each title's detail page.")
-        message.setWordWrap(True)
-        message.setAlignment(Qt.AlignCenter)
-        message.setStyleSheet(f"color: {COLORS['muted']}; padding: 60px; font-size: 14px;")
-        box.addWidget(message)
-        layout.addWidget(panel)
-        layout.addStretch()
+        self.count_label = QLabel("Related works saved locally")
+        self.count_label.setStyleSheet(f"font-size: 12px; color: {COLORS['muted']};")
+        title_box.addWidget(title)
+        title_box.addWidget(self.count_label)
+        header.addLayout(title_box)
+        header.addStretch()
+        self.refresh_button = QPushButton("Refresh")
+        self.refresh_button.setCursor(Qt.PointingHandCursor)
+        self.refresh_button.clicked.connect(self.refresh)
+        header.addWidget(self.refresh_button)
+        root.addLayout(header)
+
+        controls = QFrame()
+        controls.setStyleSheet(f"QFrame {{ background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: 14px; }}")
+        controls_row = QHBoxLayout(controls)
+        controls_row.setContentsMargins(10, 8, 10, 8)
+        controls_row.setSpacing(8)
+        self.filter_box = QComboBox()
+        self.filter_box.setMinimumWidth(190)
+        self.filter_box.currentTextChanged.connect(self._populate)
+        controls_row.addWidget(QLabel("TYPE"), 0)
+        controls_row.addWidget(self.filter_box)
+        controls_row.addStretch()
+        root.addWidget(controls)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.container = QWidget()
+        self.content = QVBoxLayout(self.container)
+        self.content.setContentsMargins(0, 0, 0, 20)
+        self.content.setSpacing(12)
+        self.scroll.setWidget(self.container)
+        root.addWidget(self.scroll, 1)
+
+        self._populate_empty()
+
+    def _populate_empty(self):
+        while self.content.count():
+            item = self.content.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        label = QLabel("No stored relations yet. Open a title from Search and its AniList relations will be saved automatically.")
+        label.setWordWrap(True)
+        label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet(f"color:{COLORS['muted']};font-size:14px;padding:80px;")
+        self.content.addWidget(label)
+
+    def refresh(self):
+        rows = get_all_relation_cards()
+        self._all_relations = list(rows)
+        current = self.filter_box.currentData() if self.filter_box.count() else "All"
+        types = OrderedDict()
+        for row in rows:
+            types[row["relation_type"]] = True
+        self.filter_box.blockSignals(True)
+        self.filter_box.clear()
+        self.filter_box.addItem("All relation types", "All")
+        for relation_type in sorted(types, key=lambda value: RELATION_LABELS.get(value, value.replace("_", " ").title())):
+            self.filter_box.addItem(RELATION_LABELS.get(relation_type, relation_type.replace("_", " ").title()), relation_type)
+        index = self.filter_box.findData(current)
+        self.filter_box.setCurrentIndex(index if index >= 0 else 0)
+        self.filter_box.blockSignals(False)
+        self._loaded = True
+        self._populate()
+
+    def _populate(self):
+        while self.content.count():
+            item = self.content.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not self._all_relations:
+            self.count_label.setText("No related works saved locally")
+            self._populate_empty()
+            return
+
+        selected = self.filter_box.currentData() or "All"
+        rows = [row for row in self._all_relations if selected == "All" or row["relation_type"] == selected]
+        self.count_label.setText(f"{len(rows)} related connection{'s' if len(rows) != 1 else ''}")
+
+        if not rows:
+            label = QLabel("No relations of this type.")
+            label.setAlignment(Qt.AlignCenter)
+            label.setStyleSheet(f"color:{COLORS['muted']};font-size:14px;padding:70px;")
+            self.content.addWidget(label)
+            self.content.addStretch()
+            return
+
+        grouped = OrderedDict()
+        for row in rows:
+            grouped.setdefault(row["relation_type"], []).append(row)
+
+        for relation_type, relation_rows in grouped.items():
+            heading = QLabel(RELATION_LABELS.get(relation_type, relation_type.replace("_", " ").title()))
+            heading.setStyleSheet(f"font-size:16px;font-weight:800;color:{COLORS['primary']};padding:10px 2px 2px;")
+            self.content.addWidget(heading)
+
+            grid = QVBoxLayout()
+            grid.setSpacing(8)
+            for row in relation_rows:
+                card_data = dict(row)
+                card = RelationCard(card_data)
+                card.setToolTip(f"{row['source_title'] or 'Unknown'} → {RELATION_LABELS.get(relation_type, relation_type.replace('_', ' ').title())} → {row['title'] or 'Unknown'}")
+                card.clicked.connect(self.work_selected)
+                grid.addWidget(card)
+            wrapper = QWidget()
+            wrapper.setLayout(grid)
+            self.content.addWidget(wrapper)
+
+        self.content.addStretch()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh()
