@@ -105,8 +105,8 @@ class WorkCard(QFrame):
 
         series_count = self._value("_series_count")
         if series_count and int(series_count) > 1:
-            label = self._value("_bundle_label") or "entries"
-            bundle = QLabel(f"Bundle · {int(series_count)} {label}")
+            summary = self._value("_bundle_summary") or f"{int(series_count)} entries"
+            bundle = QLabel(f"Bundle · {summary}")
             bundle.setObjectName("bundle")
             bundle.setToolTip("This bundle contains: " + ", ".join(self._member_titles()))
             root.addWidget(bundle)
